@@ -18,7 +18,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA 
  */
 
-
 /**
  * \page page_pjsip_perf_c Samples: SIP Performance Benchmark
  *
@@ -49,8 +48,6 @@
  *    Also for every call, server will limit the call duration to
  *    10 seconds, on which the call will be terminated if the client
  *    doesn't hangup the call.
- *    
- *
  *
  * This file is pjsip-apps/src/samples/pjsip-perf.c
  *
@@ -86,8 +83,7 @@
  * invoked (instead of call-stateful, where SDP is generated
  * dynamically.
  */
-static pj_str_t dummy_sdp_str = 
-{
+static pj_str_t dummy_sdp_str = {
     "v=0\r\n"
     "o=- 3360842071 3360842071 IN IP4 192.168.0.68\r\n"
     "s=pjmedia\r\n"
@@ -109,87 +105,71 @@ static pj_str_t dummy_sdp_str =
 static pj_str_t mime_application = { "application", 11};
 static pj_str_t mime_sdp = {"sdp", 3};
 
-
-struct srv_state
-{
-    unsigned	    stateless_cnt;
-    unsigned	    stateful_cnt;
-    unsigned	    call_cnt;
+struct srv_state {
+	unsigned stateless_cnt;
+	unsigned stateful_cnt;
+	unsigned call_cnt;
 };
 
+struct app {
+	pj_caching_pool cp;
+	pj_pool_t *pool;
+	pj_bool_t use_tcp;
+	pj_str_t local_addr;
+	int local_port;
+	pjsip_endpoint *sip_endpt;
+	pjmedia_endpt *med_endpt;
+	pj_str_t local_uri;
+	pj_str_t local_contact;
+	unsigned skinfo_cnt;
+	pjmedia_sock_info skinfo[8];
+	pj_bool_t thread_quit;
+	unsigned thread_count;
+	pj_thread_t *thread[16];
+	pj_bool_t real_sdp;
+	pjmedia_sdp_session *dummy_sdp;
+	int log_level;
 
-struct app
-{
-    pj_caching_pool	 cp;
-    pj_pool_t		*pool;
-    pj_bool_t		 use_tcp;
-    pj_str_t		 local_addr;
-    int			 local_port;
-    pjsip_endpoint	*sip_endpt;
-    pjmedia_endpt	*med_endpt;
-    pj_str_t		 local_uri;
-    pj_str_t		 local_contact;
-    unsigned		 skinfo_cnt;
-    pjmedia_sock_info	 skinfo[8];
+	struct {
+		pjsip_method method;
+		pj_str_t dst_uri;
+		pj_bool_t stateless;
+		unsigned timeout;
+		unsigned job_count, job_submitted, job_finished, job_window;
+		unsigned stat_max_window;
+		pj_time_val first_request;
+		pj_time_val requests_sent;
+		pj_time_val last_completion;
+		unsigned total_responses;
+		unsigned response_codes[800];
+	} client;
 
-    pj_bool_t		 thread_quit;
-    unsigned		 thread_count;
-    pj_thread_t		*thread[16];
-
-    pj_bool_t		 real_sdp;
-    pjmedia_sdp_session *dummy_sdp;
-
-    int			 log_level;
-
-    struct {
-	pjsip_method	     method;
-	pj_str_t	     dst_uri;
-	pj_bool_t	     stateless;
-	unsigned	     timeout;
-	unsigned	     job_count,
-			     job_submitted, 
-			     job_finished,
-			     job_window;
-	unsigned	     stat_max_window;
-	pj_time_val	     first_request;
-	pj_time_val	     requests_sent;
-	pj_time_val	     last_completion;
-	unsigned	     total_responses;
-	unsigned	     response_codes[800];
-    } client;
-
-    struct {
-	pj_bool_t send_trying;
-	pj_bool_t send_ringing;
-	unsigned delay;
-	struct srv_state prev_state;
-	struct srv_state cur_state;
-    } server;
-
-
+	struct {
+		pj_bool_t send_trying;
+		pj_bool_t send_ringing;
+		unsigned delay;
+		struct srv_state prev_state;
+		struct srv_state cur_state;
+	} server;
 } app;
 
-struct call
-{
-    pjsip_inv_session	*inv;
-    pj_timer_entry	 ans_timer;
+struct call {
+	pjsip_inv_session *inv;
+ 	pj_timer_entry ans_timer;
 };
 
-
-static void app_perror(const char *sender, const char *title, 
-		       pj_status_t status)
-{
-    char errmsg[PJ_ERR_MSG_SIZE];
-
-    pj_strerror(status, errmsg, sizeof(errmsg));
-    PJ_LOG(1,(sender, "%s: %s [code=%d]", title, errmsg, status));
+static void app_perror(const char *sender, const char *title, pj_status_t status) {
+	char errmsg[PJ_ERR_MSG_SIZE];
+	pj_strerror(status, errmsg, sizeof(errmsg));
+	PJ_LOG(1,(sender, "%s: %s [code=%d]", title, errmsg, status));
 }
-
 
 /**************************************************************************
  * STATELESS SERVER
  */
 static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata);
+static pj_status_t mod_stateless_on_tx_request(pjsip_tx_data *tdata);
+static pj_bool_t mod_stateless_on_rx_response(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests statelessly.
  */
@@ -204,53 +184,61 @@ static pjsip_module mod_stateless_server =
     NULL,			    /* stop()			*/
     NULL,			    /* unload()			*/
     &mod_stateless_on_rx_request,   /* on_rx_request()		*/
-    NULL,			    /* on_rx_response()		*/
-    NULL,			    /* on_tx_request.		*/
+    &mod_stateless_on_rx_response,  /* on_rx_response()		*/
+    &mod_stateless_on_tx_request,   /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
 };
 
-
-static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata)
-{
-    const pj_str_t stateless_user = { "0", 1 };
-    pjsip_uri *uri;
-    pjsip_sip_uri *sip_uri;
-
-    uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
-
-    /* Only want to receive SIP/SIPS scheme */
-    if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
-	return PJ_FALSE;
-
-    sip_uri = (pjsip_sip_uri*) uri;
-
-    /* Check for matching user part */
-    if (pj_strcmp(&sip_uri->user, &stateless_user)!=0)
-	return PJ_FALSE;
-
-    /*
-     * Yes, this is for us.
-     */
-
-    /* Ignore ACK request */
-    if (rdata->msg_info.msg->line.req.method.id == PJSIP_ACK_METHOD)
-	return PJ_TRUE;
-
-    /*
-     * Respond statelessly with 200/OK.
-     */
-    pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 200, NULL,
-				  NULL, NULL);
-    app.server.cur_state.stateless_cnt++;
-    return PJ_TRUE;
+static pj_status_t mod_stateless_on_tx_request(pjsip_tx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "mod_stateless_on_tx_request"));
+	return PJ_SUCCESS;
 }
 
+static pj_bool_t mod_stateless_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "rx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
+
+static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
+	const pj_str_t stateless_user = { "0", 1 };
+	pjsip_uri *uri;
+	pjsip_sip_uri *sip_uri;
+
+	uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
+
+	/* Only want to receive SIP/SIPS scheme */
+	if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
+	return PJ_FALSE;
+
+	sip_uri = (pjsip_sip_uri*) uri;
+
+	/* Check for matching user part */
+	if (pj_strcmp(&sip_uri->user, &stateless_user)!=0)
+		return PJ_FALSE;
+
+	// Yes, this is for us.
+
+	/* Ignore ACK request */
+	if (rdata->msg_info.msg->line.req.method.id == PJSIP_ACK_METHOD)
+		return PJ_TRUE;
+
+	/* Respond statelessly with 200/OK */
+	pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 200, NULL, NULL, NULL);
+	app.server.cur_state.stateless_cnt++;
+	return PJ_TRUE;
+}
 
 /**************************************************************************
  * STATEFUL SERVER
  */
 static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata);
+static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata);
+static pj_bool_t mod_stateful_on_rx_response(pjsip_rx_data *rdata);
+static pj_bool_t mod_stateful_on_tx_response(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests statefully.
  */
@@ -264,61 +252,74 @@ static pjsip_module mod_stateful_server =
     NULL,			    /* start()			*/
     NULL,			    /* stop()			*/
     NULL,			    /* unload()			*/
-    &mod_stateful_on_rx_request,   /* on_rx_request()		*/
-    NULL,			    /* on_rx_response()		*/
-    NULL,			    /* on_tx_request.		*/
+    &mod_stateful_on_rx_request,    /* on_rx_request()		*/
+    &mod_stateful_on_rx_response,   /* on_rx_response()		*/
+    &mod_stateful_on_tx_request,    /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
 };
 
-
-static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata)
-{
-    const pj_str_t stateful_user = { "1", 1 };
-    pjsip_uri *uri;
-    pjsip_sip_uri *sip_uri;
-
-    uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
-
-    /* Only want to receive SIP/SIPS scheme */
-    if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
-	return PJ_FALSE;
-
-    sip_uri = (pjsip_sip_uri*) uri;
-
-    /* Check for matching user part */
-    if (pj_strcmp(&sip_uri->user, &stateful_user)!=0)
-	return PJ_FALSE;
-
-    /*
-     * Yes, this is for us.
-     * Respond statefully with 200/OK.
-     */
-    switch (rdata->msg_info.msg->line.req.method.id) {
-    case PJSIP_INVITE_METHOD:
-	{
-	    pjsip_msg_body *body;
-
-	    if (dummy_sdp_str.slen == 0)
-		dummy_sdp_str.slen = pj_ansi_strlen(dummy_sdp_str.ptr);
-
-	    body = pjsip_msg_body_create(rdata->tp_info.pool, 
-					 &mime_application, &mime_sdp, 
-					 &dummy_sdp_str);
-	    pjsip_endpt_respond(app.sip_endpt, &mod_stateful_server, rdata,
-				200, NULL, NULL, body, NULL);
+static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata) {
+	if (tdata->msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request"));
+	} else {
+		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
 	}
-	break;
-    case PJSIP_ACK_METHOD:
-	return PJ_TRUE;
-    default:
-	pjsip_endpt_respond(app.sip_endpt, &mod_stateful_server, rdata,
-			    200, NULL, NULL, NULL, NULL);
-	break;
-    }
+	return PJ_SUCCESS;
+}
 
-    app.server.cur_state.stateful_cnt++;
-    return PJ_TRUE;
+static pj_bool_t mod_stateful_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "rx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
+
+static pj_bool_t mod_stateful_on_tx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "tx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "tx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
+
+static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata) {
+	const pj_str_t stateful_user = { "1", 1 };
+	pjsip_uri *uri;
+	pjsip_sip_uri *sip_uri;
+	uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
+
+	/* Only want to receive SIP/SIPS scheme */
+	if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
+		return PJ_FALSE;
+
+	sip_uri = (pjsip_sip_uri*) uri;
+
+	/* Check for matching user part */
+	if (pj_strcmp(&sip_uri->user, &stateful_user)!=0)
+		return PJ_FALSE;
+
+	/* Yes, this is for us. Respond statefully with 200/OK. */
+	switch (rdata->msg_info.msg->line.req.method.id) {
+	case PJSIP_INVITE_METHOD: {
+		pjsip_msg_body *body;
+		if (dummy_sdp_str.slen == 0)
+			dummy_sdp_str.slen = pj_ansi_strlen(dummy_sdp_str.ptr);
+
+		body = pjsip_msg_body_create(rdata->tp_info.pool, &mime_application, &mime_sdp, &dummy_sdp_str);
+		pjsip_endpt_respond(app.sip_endpt, &mod_stateful_server, rdata, 200, NULL, NULL, body, NULL);
+		}
+		break;
+	case PJSIP_ACK_METHOD:
+		return PJ_TRUE;
+	default:
+		pjsip_endpt_respond(app.sip_endpt, &mod_stateful_server, rdata, 200, NULL, NULL, NULL, NULL);
+		break;
+	}
+
+	app.server.cur_state.stateful_cnt++;
+	return PJ_TRUE;
 }
 
 
@@ -581,6 +582,7 @@ static pj_bool_t mod_responder_on_rx_request(pjsip_rx_data *rdata)
 {
     const pj_str_t reason = pj_str("Not expecting request at this URI");
 
+
     /*
      * Respond any requests (except ACK!) with 500.
      */
@@ -669,10 +671,8 @@ static pjsip_module msg_logger =
 
 static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata);
 
-static void call_on_media_update( pjsip_inv_session *inv,
-				  pj_status_t status);
-static void call_on_state_changed( pjsip_inv_session *inv, 
-				   pjsip_event *e);
+static void call_on_media_update( pjsip_inv_session *inv, pj_status_t status);
+static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e);
 static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e);
 
 
@@ -707,56 +707,47 @@ static void report_completion(int status_code)
 
 
 /* Handler when response is received. */
-static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata)
-{
-    if (pjsip_rdata_get_tsx(rdata) == NULL) {
-	report_completion(rdata->msg_info.msg->line.status.code);
-    }
-
-    return PJ_TRUE;
+static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "mod_responder_on_rx_request"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	if (pjsip_rdata_get_tsx(rdata) == NULL) {
+		report_completion(rdata->msg_info.msg->line.status.code);
+	}
+	return PJ_TRUE;
 }
 
+/* Create app */
+static pj_status_t create_app(void) {
+	pj_status_t status;
 
-/*
- * Create app
- */
-static pj_status_t create_app(void)
-{
-    pj_status_t status;
+	status = pj_init();
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "Error initializing pjlib", status);
+		return status;
+	}
 
-    status = pj_init();
-    if (status != PJ_SUCCESS) {
-	app_perror(THIS_FILE, "Error initializing pjlib", status);
+	/* init PJLIB-UTIL: */
+	status = pjlib_util_init();
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+
+	/* Must create a pool factory before we can allocate any memory. */
+	pj_caching_pool_init(&app.cp, &pj_pool_factory_default_policy, CACHING_POOL_SIZE);
+
+	/* Create application pool for misc. */
+	app.pool = pj_pool_create(&app.cp.factory, "app", 1000, 1000, NULL);
+
+	/* Create the endpoint: */
+	status = pjsip_endpt_create(&app.cp.factory, pj_gethostname()->ptr, &app.sip_endpt);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+
 	return status;
-    }
-
-    /* init PJLIB-UTIL: */
-    status = pjlib_util_init();
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-
-    /* Must create a pool factory before we can allocate any memory. */
-    pj_caching_pool_init(&app.cp, &pj_pool_factory_default_policy, 
-			 CACHING_POOL_SIZE);
-
-    /* Create application pool for misc. */
-    app.pool = pj_pool_create(&app.cp.factory, "app", 1000, 1000, NULL);
-
-    /* Create the endpoint: */
-    status = pjsip_endpt_create(&app.cp.factory, pj_gethostname()->ptr, 
-				&app.sip_endpt);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-
-
-    return status;
 }
 
-
-/*
- * Init SIP stack
- */
-static pj_status_t init_sip()
-{
-    pj_status_t status = -1;
+/* Init SIP stack */
+static pj_status_t init_sip() {
+	pj_status_t status = -1;
 
     /* Add UDP/TCP transport. */
     {
@@ -854,7 +845,6 @@ static pj_status_t init_sip()
     status = pjsip_endpt_register_module( app.sip_endpt, &mod_test);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-
     /* Register stateless server module */
     status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateless_server);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
@@ -867,11 +857,9 @@ static pj_status_t init_sip()
     status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateful_server);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-
     /* Register call server module */
     status = pjsip_endpt_register_module( app.sip_endpt, &mod_call_server);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-
 
     /* Done */
     return PJ_SUCCESS;
@@ -984,57 +972,45 @@ static void call_on_media_update( pjsip_inv_session *inv,
 /* This is notification from the call when the call state has changed.
  * This is called for client calls only.
  */
-static void call_on_state_changed( pjsip_inv_session *inv, 
-				   pjsip_event *e)
-{
-    PJ_UNUSED_ARG(e);
+static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
+	PJ_UNUSED_ARG(e);
+		PJ_LOG(1, (THIS_FILE, "call_on_state_changed"));
+	/* Bail out if the session has been counted before */
+	if (inv->mod_data[mod_test.id] != NULL)
+		return;
+	/* Bail out if this is not an outgoing call */
+	if (inv->role != PJSIP_UAC_ROLE)
+		return;
 
-    /* Bail out if the session has been counted before */
-    if (inv->mod_data[mod_test.id] != NULL)
-	return;
-
-    /* Bail out if this is not an outgoing call */
-    if (inv->role != PJSIP_UAC_ROLE)
-	return;
-
-    if (inv->state == PJSIP_INV_STATE_CONFIRMED) {
-	pjsip_tx_data *tdata;
-	pj_status_t status;
-
-	//report_completion(200);
-	//inv->mod_data[mod_test.id] = (void*)1;
-
-	status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
-	if (status == PJ_SUCCESS && tdata)
-	    status = pjsip_inv_send_msg(inv, tdata);
-
-    } else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
-	report_completion(inv->cause);
-	inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-    }
+	if (inv->state == PJSIP_INV_STATE_CONFIRMED) {
+		pjsip_tx_data *tdata;
+		pj_status_t status;
+		//report_completion(200);
+		//inv->mod_data[mod_test.id] = (void*)1;
+		status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
+		if (status == PJ_SUCCESS && tdata)
+			status = pjsip_inv_send_msg(inv, tdata);
+	} else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
+		PJ_LOG(1, (THIS_FILE, "stats_change"));
+		report_completion(inv->cause);
+		inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+	}
 }
-
 
 /* Not implemented for now */
-static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e)
-{
-    /* Do nothing */
-    PJ_UNUSED_ARG(inv);
-    PJ_UNUSED_ARG(e);
+static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e) {
+	/* Do nothing */
+	PJ_UNUSED_ARG(inv);
+	PJ_UNUSED_ARG(e);
 }
 
-
-/*
- * Make outgoing call.
- */
-static pj_status_t make_call(const pj_str_t *dst_uri)
-{
+/* Make outgoing call */
+static pj_status_t make_call(const pj_str_t *dst_uri) {
     struct call *call;
     pjsip_dialog *dlg;
     pjmedia_sdp_session *sdp;
     pjsip_tx_data *tdata;
     pj_status_t status;
-
 
     /* Create UAC dialog */
     status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
@@ -1068,22 +1044,17 @@ static pj_status_t make_call(const pj_str_t *dst_uri)
 	return status;
     }
 
-
     /* Create initial INVITE request.
      * This INVITE request will contain a perfectly good request and 
-     * an SDP body as well.
-     */
+     * an SDP body as well. */
     status = pjsip_inv_invite(call->inv, &tdata);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-
-    /* Send initial INVITE request. 
+    /* Send initial INVITE request.
      * From now on, the invite session's state will be reported to us
-     * via the invite session callbacks.
-     */
+     * via the invite session callbacks. */
     status = pjsip_inv_send_msg(call->inv, tdata);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-
 
     return PJ_SUCCESS;
 }
@@ -1323,8 +1294,7 @@ static pj_status_t init_options(int argc, char *argv[])
 
 
 /* Send one stateless request */
-static pj_status_t submit_stateless_job(void)
-{
+static pj_status_t submit_stateless_job(void) {
     pjsip_tx_data *tdata;
     pj_status_t status;
 
@@ -1338,8 +1308,7 @@ static pj_status_t submit_stateless_job(void)
 	return status;
     }
 
-    status = pjsip_endpt_send_request_stateless(app.sip_endpt, tdata, NULL,
-						NULL);
+    status = pjsip_endpt_send_request_stateless(app.sip_endpt, tdata, NULL, NULL);
     if (status != PJ_SUCCESS) {
 	pjsip_tx_data_dec_ref(tdata);
 	app_perror(THIS_FILE, "Error sending stateless request", status);
@@ -1352,68 +1321,60 @@ static pj_status_t submit_stateless_job(void)
 
 
 /* This callback is called when client transaction state has changed */
-static void tsx_completion_cb(void *token, pjsip_event *event)
-{
-    pjsip_transaction *tsx;
+static void tsx_completion_cb(void *token, pjsip_event *event) {
+	pjsip_transaction *tsx;
+	PJ_UNUSED_ARG(token);
 
-    PJ_UNUSED_ARG(token);
+	PJ_LOG(1, (THIS_FILE, "tsx_completion_cb"));
+	if (event->type != PJSIP_EVENT_TSX_STATE)
+		return;
 
-    if (event->type != PJSIP_EVENT_TSX_STATE)
-	return;
+	tsx = event->body.tsx_state.tsx;
 
-    tsx = event->body.tsx_state.tsx;
+	if (tsx->mod_data[mod_test.id] != NULL) {
+		/* This transaction has been calculated before */
+		return;
+	}
 
-    if (tsx->mod_data[mod_test.id] != NULL) {
-	/* This transaction has been calculated before */
-	return;
-    }
-
-    if (tsx->state==PJSIP_TSX_STATE_TERMINATED) {
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-    }
-    else if (tsx->method.id == PJSIP_INVITE_METHOD &&
-	     tsx->state == PJSIP_TSX_STATE_CONFIRMED) {
-
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-	
-    } else if (tsx->state == PJSIP_TSX_STATE_COMPLETED) {
-
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-
-	TERMINATE_TSX(tsx, tsx->status_code);
-    }
+	if (tsx->state==PJSIP_TSX_STATE_TERMINATED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+	} else if (tsx->method.id == PJSIP_INVITE_METHOD &&
+		tsx->state == PJSIP_TSX_STATE_CONFIRMED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+	} else if (tsx->state == PJSIP_TSX_STATE_COMPLETED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+		TERMINATE_TSX(tsx, tsx->status_code);
+	}
 }
 
 
 /* Send one stateful request */
-static pj_status_t submit_job(void)
-{
-    pjsip_tx_data *tdata;
-    pj_status_t status;
-
-    status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method, 
+static pj_status_t submit_job(void) {
+	pjsip_tx_data *tdata;
+	pj_status_t status;
+	PJ_LOG(1, (THIS_FILE, "submit_job"));
+	status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method,
 					&app.client.dst_uri, &app.local_uri,
 					&app.client.dst_uri, &app.local_contact,
 					NULL, -1, NULL, &tdata);
-    if (status != PJ_SUCCESS) {
-	app_perror(THIS_FILE, "Error creating request", status);
-	report_completion(701);
-	return status;
-    }
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "Error creating request", status);
+		report_completion(701);
+		return status;
+	}
 
-    status = pjsip_endpt_send_request(app.sip_endpt, tdata, -1, NULL, 
-				      &tsx_completion_cb);
-    if (status != PJ_SUCCESS) {
-	app_perror(THIS_FILE, "Error sending stateful request", status);
-	//should have been reported by tsx_completion_cb().
-	//report_completion(701);
-	//No longer necessary (r777)
-	//pjsip_tx_data_dec_ref(tdata);
-    }
-    return status;
+	status = pjsip_endpt_send_request(app.sip_endpt, tdata, -1, NULL, &tsx_completion_cb);
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "Error sending stateful request", status);
+		//should have been reported by tsx_completion_cb().
+		//report_completion(701);
+		//No longer necessary (r777)
+		//pjsip_tx_data_dec_ref(tdata);
+	}
+	return status;
 }
 
 
@@ -1466,14 +1427,13 @@ static int client_thread(void *arg)
 	    ++cycle;
 	}
 
-
 	/* Submit one job */
 	if (app.client.method.id == PJSIP_INVITE_METHOD) {
-	    status = make_call(&app.client.dst_uri);
+		status = make_call(&app.client.dst_uri);
 	} else if (app.client.stateless) {
-	    status = submit_stateless_job();
+		status = submit_stateless_job();
 	} else {
-	    status = submit_job();
+		status = submit_job();
 	}
 
 	++app.client.job_submitted;
@@ -1707,7 +1667,7 @@ int main(int argc, char *argv[])
 			    app.client.method.name.ptr);
 	}
 	
-
+	// Sending 1 INVITE calls to 'sip:0@147.75.69.1:5070' with 1000 maximum outstanding jobs, please wait..
 	printf("Sending %d %s to '%.*s' with %d maximum outstanding jobs, please wait..\n", 
 		  app.client.job_count, test_type,
 		  (int)app.client.dst_uri.slen, app.client.dst_uri.ptr,
@@ -1758,7 +1718,7 @@ int main(int argc, char *argv[])
 	pj_ansi_snprintf(
 	    report, sizeof(report),
 	    "Total %d %s sent in %d ms at rate of %d/sec\n"
-	    "Total %d responses receieved in %d ms at rate of %d/sec:",
+	    "Total %d responses received in %d ms at rate of %d/sec:",
 	    app.client.job_submitted, test_type, msec_req, 
 	    app.client.job_submitted * 1000 / msec_req,
 	    app.client.total_responses, msec_res,
