@@ -221,7 +221,6 @@ static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
  * STATEFUL SERVER
  */
 static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata);
-static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata);
 static pj_bool_t mod_stateful_on_rx_response(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests statefully.
@@ -238,19 +237,11 @@ static pjsip_module mod_stateful_server =
     NULL,			    /* unload()			*/
     &mod_stateful_on_rx_request,    /* on_rx_request()		*/
     NULL,			    /* on_rx_response()		*/
-    &mod_stateful_on_tx_request,    /* on_tx_request.		*/
+    NULL,			    /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
 };
 
-static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata) {
-	if (tdata->msg->type == PJSIP_RESPONSE_MSG) {
-		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request"));
-	} else {
-		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
-	}
-	return PJ_SUCCESS;
-}
 
 static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata) {
 	const pj_str_t stateful_user = { "1", 1 };
@@ -630,13 +621,28 @@ static pjsip_module msg_logger =
 
 };
 
-static pj_bool_t latency_on_rx_msg(pjsip_rx_data *rdata) {
-	PJ_LOG(1, (THIS_FILE, "latency_on_rx_msg"));
-	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
-		PJ_LOG(1, (THIS_FILE, "latency_on_rx_msg[%d][%d]", rdata->msg_info.msg->line.status.code, rdata->pkt_info.timestamp));
+static pj_status_t latency_on_tx_request(pjsip_tx_data *tdata) {
+	if (tdata->msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "latency_on_tx_request"));
+	} else {
+		PJ_LOG(1, (THIS_FILE, "latency_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
 	}
 	return PJ_SUCCESS;
 }
+
+static pj_bool_t latency_on_rx_response(pjsip_rx_data *rdata) {
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "latency_on_rx_response[%d][%lld]", rdata->msg_info.msg->line.status.code, rdata->pkt_info.timestamp));
+	}
+	return PJ_FALSE;
+}
+
+void latency_on_tsx_state(pjsip_transaction *tsx, pjsip_event *event) {
+	PJ_LOG(1, (THIS_FILE, "latency_on_tsx_state[%d]", tsx->state ));
+	return;
+}
+// mod_stateful_on_tx_request
+
 
 
 /* The module instance. */
@@ -645,16 +651,16 @@ static pjsip_module msg_latency_mon =
     NULL, NULL,				/* prev, next.		*/
     { "mod-latency-mon", 15 },		/* Name.		*/
     -1,					/* Id			*/
-    PJSIP_MOD_PRIORITY_TRANSPORT_LAYER-1,/* Priority	        */
+    PJSIP_MOD_PRIORITY_TRANSPORT_LAYER+1,/* Priority	        */
     NULL,				/* load()		*/
     NULL,				/* start()		*/
     NULL,				/* stop()		*/
     NULL,				/* unload()		*/
     NULL,				/* on_rx_request()	*/
-    &latency_on_rx_msg,			/* on_rx_response()	*/
-    NULL,				/* on_tx_request.	*/
+    &latency_on_rx_response,		/* on_rx_response()	*/
+    &latency_on_tx_request,		/* on_tx_request.	*/
     NULL,				/* on_tx_response()	*/
-    NULL,				/* on_tsx_state()	*/
+    &latency_on_tsx_state,		/* on_tsx_state()	*/
 };
 
 /**************************************************************************
