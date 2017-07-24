@@ -168,6 +168,8 @@ static void app_perror(const char *sender, const char *title, pj_status_t status
  * STATELESS SERVER
  */
 static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata);
+static pj_status_t mod_stateless_on_tx_request(pjsip_tx_data *tdata);
+static pj_bool_t mod_stateless_on_rx_response(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests statelessly.
  */
@@ -182,13 +184,24 @@ static pjsip_module mod_stateless_server =
     NULL,			    /* stop()			*/
     NULL,			    /* unload()			*/
     &mod_stateless_on_rx_request,   /* on_rx_request()		*/
-    NULL,			    /* on_rx_response()		*/
-    NULL,			    /* on_tx_request.		*/
+    &mod_stateless_on_rx_response,  /* on_rx_response()		*/
+    &mod_stateless_on_tx_request,   /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
 };
 
+static pj_status_t mod_stateless_on_tx_request(pjsip_tx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "mod_stateless_on_tx_request"));
+	return PJ_SUCCESS;
+}
 
+static pj_bool_t mod_stateless_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "rx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
 static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
 	const pj_str_t stateless_user = { "0", 1 };
 	pjsip_uri *uri;
@@ -223,6 +236,9 @@ static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
  * STATEFUL SERVER
  */
 static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata);
+static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata);
+static pj_bool_t mod_stateful_on_rx_response(pjsip_rx_data *rdata);
+static pj_bool_t mod_stateful_on_tx_response(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests statefully.
  */
@@ -236,13 +252,37 @@ static pjsip_module mod_stateful_server =
     NULL,			    /* start()			*/
     NULL,			    /* stop()			*/
     NULL,			    /* unload()			*/
-    &mod_stateful_on_rx_request,   /* on_rx_request()		*/
-    NULL,			    /* on_rx_response()		*/
-    NULL,			    /* on_tx_request.		*/
+    &mod_stateful_on_rx_request,    /* on_rx_request()		*/
+    &mod_stateful_on_rx_response,   /* on_rx_response()		*/
+    &mod_stateful_on_tx_request,    /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
 };
 
+static pj_status_t mod_stateful_on_tx_request(pjsip_tx_data *tdata) {
+	if (tdata->msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request"));
+	} else {
+		PJ_LOG(1, (THIS_FILE, "mod_stateful_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
+	}
+	return PJ_SUCCESS;
+}
+
+static pj_bool_t mod_stateful_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "rx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
+
+static pj_bool_t mod_stateful_on_tx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "tx_response"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "tx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	return PJ_TRUE;
+}
 
 static pj_bool_t mod_stateful_on_rx_request(pjsip_rx_data *rdata) {
 	const pj_str_t stateful_user = { "1", 1 };
@@ -542,6 +582,7 @@ static pj_bool_t mod_responder_on_rx_request(pjsip_rx_data *rdata)
 {
     const pj_str_t reason = pj_str("Not expecting request at this URI");
 
+
     /*
      * Respond any requests (except ACK!) with 500.
      */
@@ -668,13 +709,15 @@ static void report_completion(int status_code)
 
 
 /* Handler when response is received. */
-static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata)
-{
-    if (pjsip_rdata_get_tsx(rdata) == NULL) {
-	report_completion(rdata->msg_info.msg->line.status.code);
-    }
-
-    return PJ_TRUE;
+static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata) {
+	PJ_LOG(1, (THIS_FILE, "mod_responder_on_rx_request"));
+	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
+		PJ_LOG(1, (THIS_FILE, "rx_response[]", rdata->pkt_info.timestamp, rdata->msg_info.msg->line.status.code));
+	}
+	if (pjsip_rdata_get_tsx(rdata) == NULL) {
+		report_completion(rdata->msg_info.msg->line.status.code);
+	}
+	return PJ_TRUE;
 }
 
 
@@ -970,6 +1013,7 @@ static void call_on_state_changed( pjsip_inv_session *inv,
 	    status = pjsip_inv_send_msg(inv, tdata);
 
     } else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
+	PJ_LOG(1, (THIS_FILE, "stats_change"));
 	report_completion(inv->cause);
 	inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
     }
@@ -1313,68 +1357,59 @@ static pj_status_t submit_stateless_job(void)
 
 
 /* This callback is called when client transaction state has changed */
-static void tsx_completion_cb(void *token, pjsip_event *event)
-{
-    pjsip_transaction *tsx;
+static void tsx_completion_cb(void *token, pjsip_event *event) {
+	pjsip_transaction *tsx;
+	PJ_UNUSED_ARG(token);
 
-    PJ_UNUSED_ARG(token);
+	PJ_LOG(1, (THIS_FILE, "tsx_completion_cb"));
+	if (event->type != PJSIP_EVENT_TSX_STATE)
+		return;
 
-    if (event->type != PJSIP_EVENT_TSX_STATE)
-	return;
+	tsx = event->body.tsx_state.tsx;
 
-    tsx = event->body.tsx_state.tsx;
+	if (tsx->mod_data[mod_test.id] != NULL) {
+		/* This transaction has been calculated before */
+		return;
+	}
 
-    if (tsx->mod_data[mod_test.id] != NULL) {
-	/* This transaction has been calculated before */
-	return;
-    }
-
-    if (tsx->state==PJSIP_TSX_STATE_TERMINATED) {
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-    }
-    else if (tsx->method.id == PJSIP_INVITE_METHOD &&
-	     tsx->state == PJSIP_TSX_STATE_CONFIRMED) {
-
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-	
-    } else if (tsx->state == PJSIP_TSX_STATE_COMPLETED) {
-
-	report_completion(tsx->status_code);
-	tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
-
-	TERMINATE_TSX(tsx, tsx->status_code);
-    }
+	if (tsx->state==PJSIP_TSX_STATE_TERMINATED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+	} else if (tsx->method.id == PJSIP_INVITE_METHOD &&
+		tsx->state == PJSIP_TSX_STATE_CONFIRMED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+	} else if (tsx->state == PJSIP_TSX_STATE_COMPLETED) {
+		report_completion(tsx->status_code);
+		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+		TERMINATE_TSX(tsx, tsx->status_code);
+	}
 }
 
 
 /* Send one stateful request */
-static pj_status_t submit_job(void)
-{
-    pjsip_tx_data *tdata;
-    pj_status_t status;
-
-    status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method, 
+static pj_status_t submit_job(void) {
+	pjsip_tx_data *tdata;
+	pj_status_t status;
+	status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method,
 					&app.client.dst_uri, &app.local_uri,
 					&app.client.dst_uri, &app.local_contact,
 					NULL, -1, NULL, &tdata);
-    if (status != PJ_SUCCESS) {
-	app_perror(THIS_FILE, "Error creating request", status);
-	report_completion(701);
-	return status;
-    }
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "Error creating request", status);
+		report_completion(701);
+		return status;
+	}
 
-    status = pjsip_endpt_send_request(app.sip_endpt, tdata, -1, NULL, 
-				      &tsx_completion_cb);
-    if (status != PJ_SUCCESS) {
-	app_perror(THIS_FILE, "Error sending stateful request", status);
-	//should have been reported by tsx_completion_cb().
-	//report_completion(701);
-	//No longer necessary (r777)
-	//pjsip_tx_data_dec_ref(tdata);
-    }
-    return status;
+	status = pjsip_endpt_send_request(app.sip_endpt, tdata, -1, NULL, &tsx_completion_cb);
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "Error sending stateful request", status);
+		//should have been reported by tsx_completion_cb().
+		//report_completion(701);
+		//No longer necessary (r777)
+		//pjsip_tx_data_dec_ref(tdata);
+	}
+	return status;
 }
 
 
@@ -1427,14 +1462,13 @@ static int client_thread(void *arg)
 	    ++cycle;
 	}
 
-
 	/* Submit one job */
 	if (app.client.method.id == PJSIP_INVITE_METHOD) {
-	    status = make_call(&app.client.dst_uri);
+		status = make_call(&app.client.dst_uri);
 	} else if (app.client.stateless) {
-	    status = submit_stateless_job();
+		status = submit_stateless_job();
 	} else {
-	    status = submit_job();
+		status = submit_job();
 	}
 
 	++app.client.job_submitted;
@@ -1719,7 +1753,7 @@ int main(int argc, char *argv[])
 	pj_ansi_snprintf(
 	    report, sizeof(report),
 	    "Total %d %s sent in %d ms at rate of %d/sec\n"
-	    "Total %d responses receieved in %d ms at rate of %d/sec:",
+	    "Total %d responses received in %d ms at rate of %d/sec:",
 	    app.client.job_submitted, test_type, msec_req, 
 	    app.client.job_submitted * 1000 / msec_req,
 	    app.client.total_responses, msec_res,
