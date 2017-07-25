@@ -627,16 +627,16 @@ static pjsip_module msg_logger =
 
 static pj_status_t latency_on_tx_request(pjsip_tx_data *tdata) {
 	if (tdata->msg->type == PJSIP_RESPONSE_MSG) {
-		PJ_LOG(1, (THIS_FILE, "latency_on_tx_request"));
+		PJ_LOG(4, (THIS_FILE, "latency_on_tx_request"));
 	} else {
-		PJ_LOG(1, (THIS_FILE, "latency_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
+		PJ_LOG(4, (THIS_FILE, "latency_on_tx_request [%s]", tdata->msg->line.req.method.name.ptr));
 	}
 	return PJ_SUCCESS;
 }
 
 static pj_bool_t latency_on_rx_response(pjsip_rx_data *rdata) {
 	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
-		PJ_LOG(1, (THIS_FILE, "latency_on_rx_response[%d][%lld]", rdata->msg_info.msg->line.status.code, rdata->pkt_info.timestamp));
+		PJ_LOG(4, (THIS_FILE, "latency_on_rx_response[%d][%lld]", rdata->msg_info.msg->line.status.code, rdata->pkt_info.timestamp));
 	}
 	return PJ_FALSE;
 }
@@ -985,18 +985,19 @@ static void call_on_media_update( pjsip_inv_session *inv,
     //void (*on_tsx_state_changed)(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e);
 static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e) {
 	
-	PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[14]));
+	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[14]));
 	if (tsx->state == 1) {
 		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
 		pj_gettimeofday(start);
 		tsx->mod_data[14] = start;
+	//} else if (inv->state == 1 && tsx->state == 3)  {
 	} else {
 		pj_time_val *start = tsx->mod_data[14];
 		pj_time_val now;
 		pj_gettimeofday(&now);
-		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
 		PJ_TIME_VAL_SUB(now, *start);
-		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
 	}
 	return;
 }
@@ -1022,7 +1023,6 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 		if (status == PJ_SUCCESS && tdata)
 			status = pjsip_inv_send_msg(inv, tdata);
 	} else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
-		PJ_LOG(1, (THIS_FILE, "stats_change"));
 		report_completion(inv->cause);
 		inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
 	}
