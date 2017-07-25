@@ -156,7 +156,10 @@ struct app {
 		float avg;
 		int count;
 	} latency_stats[2];
+	pj_time_val latency_stats_period_start;
+	int latency_stats_period_duration;
 
+	pj_lock_t *stats_lock;
 
 } app;
 
@@ -976,6 +979,53 @@ static void call_on_media_update( pjsip_inv_session *inv,
 }
 
 
+static void update_stats (unsigned status_code, pj_str_t *method, pj_time_val *start) {
+	pj_time_val now, period;
+	pj_gettimeofday(&now);
+	pj_gettimeofday(&period);
+	int idx;
+	PJ_TIME_VAL_SUB(now, *start);
+	int latency = now.msec;
+	pj_bool_t period_cycle = PJ_FALSE;
+	if (now.sec)
+		latency += now.sec*1000;
+	if (status_code == 100) {
+		idx = 0;
+	} else if (status_code == 200) {
+		idx = 1;
+	} else {
+		return;
+	}
+
+	pj_lock_acquire(app.stats_lock);
+	app.latency_stats[idx].count++;
+	app.latency_stats[idx].avg = ((app.latency_stats[idx].avg * (app.latency_stats[idx].count-1)) + latency) / app.latency_stats[idx].count;
+
+	PJ_TIME_VAL_SUB(period, app.latency_stats_period_start);
+	if (period.sec >= app.latency_stats_period_duration) {
+		pj_gettimeofday(&app.latency_stats_period_start);
+		period_cycle = PJ_TRUE;
+		PJ_LOG(1, (THIS_FILE, "update_stats period[%lld]", period.sec));
+		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]", app.latency_stats[0].count, app.latency_stats[0].avg));
+		PJ_LOG(1, (THIS_FILE, "INVITE-200 count[%d] avg[%.1fms]", app.latency_stats[1].count, app.latency_stats[1].avg));
+		app.latency_stats[0].count = 0;
+		app.latency_stats[0].avg = 0.0f;
+		app.latency_stats[1].count = 0;
+		app.latency_stats[1].avg = 0.0f;
+	}
+	pj_lock_release(app.stats_lock);
+
+	PJ_LOG(4, (THIS_FILE, "update_stats [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, method->slen, method->ptr, status_code, app.latency_stats[idx].count, app.latency_stats[idx].avg));
+
+	// PJ_TIME_VAL_SUB(period, app.latency_stats_period_start);
+	//if (period.sec >= app.latency_stats_period_duration) {
+	//if (period_cycle) {
+	//	PJ_LOG(1, (THIS_FILE, "update_stats period[%lld]", period.sec));
+	//	PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]", app.latency_stats[0].count, app.latency_stats[0].avg));
+	//	PJ_LOG(1, (THIS_FILE, "INVITE-200 count[%d] avg[%.1fms]", app.latency_stats[1].count, app.latency_stats[1].avg));
+	//}
+}
+
 // pjsip_inv_callback inv_cb;
     /**
      * This callback is called whenever any transactions within the session
@@ -1001,25 +1051,27 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	//} else if (inv->state == 1 && tsx->state == 3)  {
 	} else {
 		pj_time_val *start = tsx->mod_data[14];
-		pj_time_val now;
-		pj_gettimeofday(&now);
-		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
-		PJ_TIME_VAL_SUB(now, *start);
-		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
-		int latency = now.msec;
-		if (now.sec)
-			latency += now.sec*1000;
-		if (tsx->status_code == 100) {
-			app.latency_stats[0].count++;
-			app.latency_stats[0].avg = ((app.latency_stats[0].avg * (app.latency_stats[0].count-1)) + latency) / app.latency_stats[0].count;
-			PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[0].count, app.latency_stats[0].avg));
-		} else if (inv->state < 6 && tsx->status_code == 200) {
-			app.latency_stats[1].count++;
-			app.latency_stats[1].avg = ((app.latency_stats[1].avg * (app.latency_stats[1].count-1)) + latency) / app.latency_stats[1].count;
-			PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[1].count, app.latency_stats[1].avg));
-		} else if (inv->state == 6) {
-			
-		}
+		//pj_time_val now;
+		//pj_gettimeofday(&now);
+		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+		//PJ_TIME_VAL_SUB(now, *start);
+		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
+		//int latency = now.msec;
+		//if (now.sec)
+		//	latency += now.sec*1000;
+		//if (tsx->status_code == 100) {
+		//	app.latency_stats[0].count++;
+		//	app.latency_stats[0].avg = ((app.latency_stats[0].avg * (app.latency_stats[0].count-1)) + latency) / app.latency_stats[0].count;
+		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[0].count, app.latency_stats[0].avg));
+		//} else if (inv->state < 6 && tsx->status_code == 200) {
+		//	app.latency_stats[1].count++;
+		//	app.latency_stats[1].avg = ((app.latency_stats[1].avg * (app.latency_stats[1].count-1)) + latency) / app.latency_stats[1].count;
+		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[1].count, app.latency_stats[1].avg));
+		//} else if (inv->state == 6) {
+		//	
+		//}
+		if (inv->state < 6)
+			update_stats(tsx->status_code, &tsx->method.name, start);
 	}
 	return;
 }
@@ -1439,6 +1491,7 @@ static int client_thread(void *arg)
     unsigned thread_index = (unsigned)(long)(pj_ssize_t)arg;
     unsigned cycle = 0, last_cycle = 0;
 
+    PJ_LOG(1, (THIS_FILE, "client_thread[%ld]", thread_index));
     pj_thread_sleep(100);
 
     pj_gettimeofday(&end_time);
@@ -1702,12 +1755,21 @@ int main(int argc, char *argv[])
 
 
 
+
     if (app.client.dst_uri.slen) {
 	/* Client mode */
 	pj_status_t status;
 	char test_type[64];
 	unsigned msec_req, msec_res;
 	unsigned i;
+
+	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "unable to create lock", status);
+	}
+	pj_gettimeofday(&app.latency_stats_period_start);
+	app.latency_stats_period_duration = 5;
+
 
 	/* Get the job name */
 	if (app.client.method.id == PJSIP_INVITE_METHOD) {
