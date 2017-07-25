@@ -151,6 +151,13 @@ struct app {
 		struct srv_state prev_state;
 		struct srv_state cur_state;
 	} server;
+
+	struct {
+		float avg;
+		int count;
+	} latency_stats[2];
+
+
 } app;
 
 struct call {
@@ -968,6 +975,7 @@ static void call_on_media_update( pjsip_inv_session *inv,
     }
 }
 
+
 // pjsip_inv_callback inv_cb;
     /**
      * This callback is called whenever any transactions within the session
@@ -997,7 +1005,21 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 		pj_gettimeofday(&now);
 		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
 		PJ_TIME_VAL_SUB(now, *start);
-		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
+		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
+		int latency = now.msec;
+		if (now.sec)
+			latency += now.sec*1000;
+		if (tsx->status_code == 100) {
+			app.latency_stats[0].count++;
+			app.latency_stats[0].avg = ((app.latency_stats[0].avg * (app.latency_stats[0].count-1)) + latency) / app.latency_stats[0].count;
+			PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[0].count, app.latency_stats[0].avg));
+		} else if (inv->state < 6 && tsx->status_code == 200) {
+			app.latency_stats[1].count++;
+			app.latency_stats[1].avg = ((app.latency_stats[1].avg * (app.latency_stats[1].count-1)) + latency) / app.latency_stats[1].count;
+			PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[1].count, app.latency_stats[1].avg));
+		} else if (inv->state == 6) {
+			
+		}
 	}
 	return;
 }
@@ -1787,8 +1809,11 @@ int main(int argc, char *argv[])
 
 	pj_ansi_sprintf(report, "Maximum outstanding job: %d", 
 			app.client.stat_max_window);
+	pj_ansi_sprintf(report, "INVITE-100 count[%d] avg[%.1fms]\nINVITE-200 count[%d] avg[%.1fms]\n",
+                                 app.latency_stats[0].count, app.latency_stats[0].avg,
+                                 app.latency_stats[1].count, app.latency_stats[1].avg);
+	//pj_ansi_sprintf(report, "INVITE-200 count[%d] avg[%d]\n", app.latency_stats[1].count, app.latency_stats[1].avg);
 	write_report(report);
-
 
     } else {
 	/* Server mode */
