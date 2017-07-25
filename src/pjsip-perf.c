@@ -64,6 +64,14 @@
 #include <pjlib.h>
 #include <stdio.h>
 
+// random
+#include <time.h>
+
+// INET ADDR
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #if (defined(PJ_WIN32) && PJ_WIN32!=0) || (defined(PJ_WIN64) && PJ_WIN64!=0)
 #  include <windows.h>
 #endif
@@ -151,7 +159,20 @@ struct app {
 		struct srv_state prev_state;
 		struct srv_state cur_state;
 	} server;
+
+	struct {
+		float avg;
+		int count;
+	} latency_stats[3];
+	pj_time_val latency_stats_period_start;
+	int latency_stats_period_duration;
+
+	pj_lock_t *stats_lock;
+
 } app;
+
+static FILE *log_stats_output = NULL;
+static const char *stats_fn = "/tmp/voip_perf_stats.log";
 
 struct call {
 	pjsip_inv_session *inv;
@@ -315,7 +336,10 @@ static pj_status_t send_response(pjsip_inv_session *inv,
     pjsip_tx_data *tdata;
     pj_status_t status;
 
+
     if (*has_initial) {
+	if (!inv->invite_tsx)
+		return PJ_FALSE;
 	status = pjsip_inv_answer(inv, code, NULL, NULL, &tdata);
     } else {
 	status = pjsip_inv_initial_answer(inv, rdata, code, 
@@ -757,6 +781,7 @@ static pj_status_t init_sip() {
 	pj_bzero(&addr, sizeof(addr));
 	addr.sin_family = pj_AF_INET();
 	addr.sin_addr.s_addr = 0;
+	// addr.sin_addr.s_addr = inet_addr("127.0.1.1");
 	addr.sin_port = pj_htons((pj_uint16_t)app.local_port);
 
 	if (app.local_addr.slen) {
@@ -784,6 +809,7 @@ static pj_status_t init_sip() {
 	} else {
 	    pjsip_transport *tp;
 
+	//    pjsip_str ip = {"127.0.1.1",9};
 	    transport_type = "udp";
 	    status = pjsip_udp_transport_start(app.sip_endpt, &addr, 
 					       (app.local_addr.slen ? &addrname:NULL),
@@ -968,6 +994,59 @@ static void call_on_media_update( pjsip_inv_session *inv,
     }
 }
 
+
+static void update_stats (unsigned status_code, pj_str_t *method, pj_time_val *start) {
+	pj_time_val now, period;
+	pj_gettimeofday(&now);
+	pj_gettimeofday(&period);
+	int idx;
+	if (!start)
+		return;
+	PJ_TIME_VAL_SUB(now, *start);
+	int latency = now.msec;
+	pj_bool_t period_cycle = PJ_FALSE;
+	if (now.sec)
+		latency += now.sec*1000;
+	if (status_code == 100) {
+		idx = 0;
+	} else if (status_code == 180) {
+		idx = 1;
+	} else if (status_code == 200) {
+		idx = 2;
+	} else {
+		return;
+	}
+
+	pj_lock_acquire(app.stats_lock);
+	app.latency_stats[idx].count++;
+	app.latency_stats[idx].avg = ((app.latency_stats[idx].avg * (app.latency_stats[idx].count-1)) + latency) / app.latency_stats[idx].count;
+
+	int seconds = period.sec;
+	PJ_TIME_VAL_SUB(period, app.latency_stats_period_start);
+	if (period.sec >= app.latency_stats_period_duration) {
+		pj_gettimeofday(&app.latency_stats_period_start);
+		period_cycle = PJ_TRUE;
+		fprintf(log_stats_output, "%d,INVITE,%d,%.1f,%d,%.1f,%d,%.1f\n", seconds,
+				app.latency_stats[0].count, app.latency_stats[0].avg,
+				app.latency_stats[1].count, app.latency_stats[1].avg,
+				app.latency_stats[2].count, app.latency_stats[2].avg);
+		PJ_LOG(1, (THIS_FILE, "update_stats period[%lld]", period.sec));
+		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]", app.latency_stats[0].count, app.latency_stats[0].avg));
+		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]", app.latency_stats[1].count, app.latency_stats[1].avg));
+		PJ_LOG(1, (THIS_FILE, "INVITE-200 count[%d] avg[%.1fms]", app.latency_stats[2].count, app.latency_stats[2].avg));
+		app.latency_stats[0].count = 0;
+		app.latency_stats[0].avg = 0.0f;
+		app.latency_stats[1].count = 0;
+		app.latency_stats[1].avg = 0.0f;
+		app.latency_stats[2].count = 0;
+		app.latency_stats[2].avg = 0.0f;
+	}
+	pj_lock_release(app.stats_lock);
+
+	PJ_LOG(4, (THIS_FILE, "update_stats [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, method->slen, method->ptr, status_code, app.latency_stats[idx].count, app.latency_stats[idx].avg));
+
+}
+
 // pjsip_inv_callback inv_cb;
     /**
      * This callback is called whenever any transactions within the session
@@ -993,11 +1072,27 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	//} else if (inv->state == 1 && tsx->state == 3)  {
 	} else {
 		pj_time_val *start = tsx->mod_data[14];
-		pj_time_val now;
-		pj_gettimeofday(&now);
-		PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
-		PJ_TIME_VAL_SUB(now, *start);
-		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
+		//pj_time_val now;
+		//pj_gettimeofday(&now);
+		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+		//PJ_TIME_VAL_SUB(now, *start);
+		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
+		//int latency = now.msec;
+		//if (now.sec)
+		//	latency += now.sec*1000;
+		//if (tsx->status_code == 100) {
+		//	app.latency_stats[0].count++;
+		//	app.latency_stats[0].avg = ((app.latency_stats[0].avg * (app.latency_stats[0].count-1)) + latency) / app.latency_stats[0].count;
+		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[0].count, app.latency_stats[0].avg));
+		//} else if (inv->state < 6 && tsx->status_code == 200) {
+		//	app.latency_stats[1].count++;
+		//	app.latency_stats[1].avg = ((app.latency_stats[1].avg * (app.latency_stats[1].count-1)) + latency) / app.latency_stats[1].count;
+		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[1].count, app.latency_stats[1].avg));
+		//} else if (inv->state == 6) {
+		//	
+		//}
+		if (inv->state < 6)
+			update_stats(tsx->status_code, &tsx->method.name, start);
 	}
 	return;
 }
@@ -1043,12 +1138,29 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
     pjsip_tx_data *tdata;
     pj_status_t status;
 
+
+	// replace ? with random digits
+	pj_str_t target_uri; // T.O.D.O. NEED TO FREE
+	pj_strdup(app.pool, &target_uri, dst_uri);
+	srand(time(NULL));
+	char digit[11] = "0123456789";
+	char c[2] = "#";
+	char *ret;
+	do {
+		ret = strstr(target_uri.ptr, c);
+			if (ret) {
+			ret[0] = digit[rand()%9];
+		}
+	} while (ret);
+		PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
+	//
+
     /* Create UAC dialog */
     status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
 				   &app.local_uri,	/* local URI	    */
 				   &app.local_contact,	/* local Contact    */
-				   dst_uri,		/* remote URI	    */
-				   dst_uri,		/* remote target    */
+				   &target_uri,		/* remote URI	    */
+				   &target_uri,		/* remote target    */
 				   &dlg);		/* dialog	    */
     if (status != PJ_SUCCESS) {
 	return status;
@@ -1075,11 +1187,32 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	return status;
     }
 
+   // // inv->dlg->inv_hdr.next
+   // {
+   //     //struct pjsip_hdr hdr_list;
+   //     pjsip_generic_string_hdr *h;
+   //     pj_str_t hname, hvalue;
+   //     hname = pj_str("X-Tech-Prefix");
+   //     hvalue = pj_str("33663170");
+   //     h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
+   //     //pj_list_init(&hdr_list);
+   //     //pj_list_push_back(&hdr_list, h);
+   //     pj_list_push_back(&dlg->inv_hdr, h);
+   //     // void pjsip_msg_add_hdr(pjsip_msg *msg, pjsip_hdr *hdr);
+   //     // pjsip_msg_add_hdr(msg, &hdr_list);
+   // }
+
     /* Create initial INVITE request.
      * This INVITE request will contain a perfectly good request and 
      * an SDP body as well. */
     status = pjsip_inv_invite(call->inv, &tdata);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	{
+	pjsip_msg *msg = tdata->msg;
+	PJ_LOG(4, (THIS_FILE, "make_call msg[%d]", msg->type ));
+	}
+
+
 
     /* Send initial INVITE request.
      * From now on, the invite session's state will be reported to us
@@ -1411,141 +1544,136 @@ static pj_status_t submit_job(void) {
 
 
 /* Client worker thread */
-static int client_thread(void *arg)
-{
-    pj_time_val end_time, last_report, now;
-    unsigned thread_index = (unsigned)(long)(pj_ssize_t)arg;
-    unsigned cycle = 0, last_cycle = 0;
+static int client_thread(void *arg) {
+	pj_time_val end_time, last_report, now;
+	unsigned thread_index = (unsigned)(long)(pj_ssize_t)arg;
+	unsigned cycle = 0, last_cycle = 0;
 
-    pj_thread_sleep(100);
+	pj_thread_sleep(100);
+	PJ_LOG(1, (THIS_FILE, "client_thread[%ld]", thread_index));
 
-    pj_gettimeofday(&end_time);
-    end_time.sec += app.client.timeout;
+	pj_gettimeofday(&end_time);
+	end_time.sec += app.client.timeout;
 
-    pj_gettimeofday(&last_report);
+	pj_gettimeofday(&last_report);
 
-    if (app.client.first_request.sec == 0) {
-	pj_gettimeofday(&app.client.first_request);
-    }
-
-    /* Submit all jobs */
-    while (app.client.job_submitted < app.client.job_count && !app.thread_quit){
-	pj_time_val timeout = { 0, 1 };
-	unsigned i;
-	int outstanding;
-	pj_status_t status;
-
-	/* Calculate current outstanding job */
-	outstanding = app.client.job_submitted - app.client.job_finished;
-
-	/* Update stats on max outstanding jobs */
-	if (outstanding > (int)app.client.stat_max_window)
-	    app.client.stat_max_window = outstanding;
-
-	/* Wait if there are more pending jobs than allowed in the
-	 * window. But spawn a new job anyway if no events are happening
-	 * after we wait for some time.
-	 */
-	for (i=0; outstanding > (int)app.client.job_window && i<1000; ++i) {
-	    pj_time_val wait = { 0, 500 };
-	    unsigned count = 0;
-
-	    pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
-	    outstanding = app.client.job_submitted - app.client.job_finished;
-
-	    if (count == 0)
-		break;
-
-	    ++cycle;
+	if (app.client.first_request.sec == 0) {
+		pj_gettimeofday(&app.client.first_request);
 	}
 
-	/* Submit one job */
-	if (app.client.method.id == PJSIP_INVITE_METHOD) {
-		status = make_call(&app.client.dst_uri);
-	} else if (app.client.stateless) {
-		status = submit_stateless_job();
-	} else {
-		status = submit_job();
+	/* Submit all jobs */
+	while (app.client.job_submitted < app.client.job_count && !app.thread_quit) {
+		pj_time_val timeout = { 0, 1 };
+		unsigned i;
+		int outstanding;
+		pj_status_t status;
+
+		/* Calculate current outstanding job */
+		outstanding = app.client.job_submitted - app.client.job_finished;
+
+		/* Update stats on max outstanding jobs */
+		if (outstanding > (int)app.client.stat_max_window)
+			app.client.stat_max_window = outstanding;
+
+		/* Wait if there are more pending jobs than allowed in the
+		 * window. But spawn a new job anyway if no events are happening
+		 * after we wait for some time.
+		 */
+		for (i=0; outstanding > (int)app.client.job_window && i<1000; ++i) {
+			pj_time_val wait = { 0, 500 };
+			unsigned count = 0;
+			pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
+			outstanding = app.client.job_submitted - app.client.job_finished;
+			if (count == 0)
+				break;
+			++cycle;
+		}
+
+		/* Submit one job */
+		if (app.client.method.id == PJSIP_INVITE_METHOD) {
+			status = make_call(&app.client.dst_uri);
+		} else if (app.client.stateless) {
+			status = submit_stateless_job();
+		} else {
+			status = submit_job();
+		}
+
+		++app.client.job_submitted;
+		++cycle;
+
+		/* Handle event */
+		pjsip_endpt_handle_events2(app.sip_endpt, &timeout, NULL);
+
+		/* Check for time out, also print report */
+		if (cycle - last_cycle >= 5000) {
+			pj_gettimeofday(&now);
+			if (PJ_TIME_VAL_GTE(now, end_time)) {
+				PJ_LOG(1, (THIS_FILE, "timeout !?"));
+				break;
+			}
+			last_cycle = cycle;
+
+			if (thread_index == 0 && now.sec-last_report.sec >= 2) {
+				printf("\r%d jobs started, %d completed...   ",
+				app.client.job_submitted, app.client.job_finished);
+				fflush(stdout);
+				last_report = now;
+			}
+		}
 	}
 
-	++app.client.job_submitted;
-	++cycle;
-
-	/* Handle event */
-	pjsip_endpt_handle_events2(app.sip_endpt, &timeout, NULL);
-
-	/* Check for time out, also print report */
-	if (cycle - last_cycle >= 500) {
-	    pj_gettimeofday(&now);
-	    if (PJ_TIME_VAL_GTE(now, end_time)) {
-		break;
-	    }
-	    last_cycle = cycle;
-
-	    
-	    if (thread_index == 0 && now.sec-last_report.sec >= 2) {
-		printf("\r%d jobs started, %d completed...   ",
-		       app.client.job_submitted, app.client.job_finished);
+	if (app.client.requests_sent.sec == 0) {
+		pj_gettimeofday(&app.client.requests_sent);
+	}
+	if (thread_index == 0) {
+		printf("\r%d jobs started, %d completed%s\n",
+		       app.client.job_submitted, app.client.job_finished,
+		       (app.client.job_submitted!=app.client.job_finished ? 
+			", waiting..." : ".") );
 		fflush(stdout);
-		last_report = now;
+	}
+
+	/* Wait until all jobs completes, or timed out */
+	pj_gettimeofday(&now);
+	while (PJ_TIME_VAL_LT(now, end_time) && 
+		   app.client.job_finished < app.client.job_count && 
+		   !app.thread_quit) 
+	{
+		pj_time_val timeout = { 0, 1 };
+		unsigned i;
+
+		for (i=0; i<1000; ++i) {
+		    unsigned count;
+		    count = 0;
+		    pjsip_endpt_handle_events2(app.sip_endpt, &timeout, &count);
+		    if (count == 0)
+			break;
+		}
+	
+		pj_gettimeofday(&now);
 	    }
-	}
-    }
-
-    if (app.client.requests_sent.sec == 0) {
-	pj_gettimeofday(&app.client.requests_sent);
-    }
-
-
-    if (thread_index == 0) {
-	printf("\r%d jobs started, %d completed%s\n",
-	       app.client.job_submitted, app.client.job_finished,
-	       (app.client.job_submitted!=app.client.job_finished ? 
-		", waiting..." : ".") );
-	fflush(stdout);
-    }
-
-    /* Wait until all jobs completes, or timed out */
-    pj_gettimeofday(&now);
-    while (PJ_TIME_VAL_LT(now, end_time) && 
-	   app.client.job_finished < app.client.job_count && 
-	   !app.thread_quit) 
-    {
-	pj_time_val timeout = { 0, 1 };
-	unsigned i;
-
-	for (i=0; i<1000; ++i) {
-	    unsigned count;
-	    count = 0;
-	    pjsip_endpt_handle_events2(app.sip_endpt, &timeout, &count);
-	    if (count == 0)
-		break;
-	}
-
-	pj_gettimeofday(&now);
-    }
-
-    /* Wait couple of seconds to let jobs completes (e.g. ACKs to be sent)  */
-    pj_gettimeofday(&now);
-    end_time = now;
-    end_time.sec += 2;
-    while (PJ_TIME_VAL_LT(now, end_time)) 
-    {
-	pj_time_val timeout = { 0, 1 };
-	unsigned i;
-
-	for (i=0; i<1000; ++i) {
-	    unsigned count;
-	    count = 0;
-	    pjsip_endpt_handle_events2(app.sip_endpt, &timeout, &count);
-	    if (count == 0)
-		break;
-	}
-
-	pj_gettimeofday(&now);
-    }
-
-    return 0;
+	
+	    /* Wait couple of seconds to let jobs completes (e.g. ACKs to be sent)  */
+	    pj_gettimeofday(&now);
+	    end_time = now;
+	    end_time.sec += 2;
+	    while (PJ_TIME_VAL_LT(now, end_time)) 
+	    {
+		pj_time_val timeout = { 0, 1 };
+		unsigned i;
+	
+		for (i=0; i<1000; ++i) {
+		    unsigned count;
+		    count = 0;
+		    pjsip_endpt_handle_events2(app.sip_endpt, &timeout, &count);
+		    if (count == 0)
+			break;
+		}
+	
+		pj_gettimeofday(&now);
+	    }
+	
+	    return 0;
 }
 
 
@@ -1638,13 +1766,9 @@ static void write_report(const char *msg)
 }
 
 
-int main(int argc, char *argv[])
-{
-    static char report[1024];
-
-    printf("PJSIP Performance Measurement Tool v%s\n"
-           "(c)2006 pjsip.org\n\n",
-	   PJ_VERSION);
+int main(int argc, char *argv[]) {
+	static char report[1024];
+	printf("PJSIP Performance Measurement Tool v%s\n (c)2006 pjsip.org\n\n", PJ_VERSION);
 
     if (create_app() != 0)
 	return 1;
@@ -1678,14 +1802,22 @@ int main(int argc, char *argv[])
 
     }
 
-
-
     if (app.client.dst_uri.slen) {
 	/* Client mode */
 	pj_status_t status;
 	char test_type[64];
 	unsigned msec_req, msec_res;
 	unsigned i;
+
+	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "unable to create lock", status);
+	}
+	pj_gettimeofday(&app.latency_stats_period_start);
+	app.latency_stats_period_duration = 1;
+	log_stats_output = fopen(stats_fn, "w+");
+	fflush(log_stats_output);
+	fprintf(log_stats_output,"TIMESTAMP,METHOD,COUNT,INVITE-100,COUNT,INVITE-180,COUNT,INVITE-200\n");
 
 	/* Get the job name */
 	if (app.client.method.id == PJSIP_INVITE_METHOD) {
@@ -1721,6 +1853,8 @@ int main(int argc, char *argv[])
 	    app.thread[i] = NULL;
 	}
 
+	// PJ
+	PJ_LOG(3,(THIS_FILE, "done done done"));
 	if (app.client.last_completion.sec) {
 	    pj_time_val duration;
 	    duration = app.client.last_completion;
@@ -1787,8 +1921,12 @@ int main(int argc, char *argv[])
 
 	pj_ansi_sprintf(report, "Maximum outstanding job: %d", 
 			app.client.stat_max_window);
+	pj_ansi_sprintf(report, "INVITE-100 count[%d]avg[%.1fms]\nINVITE-180 count[%d]avg[%.1fms]\nINVITE-200 count[%d]avg[%.1fms]\n",
+                                 app.latency_stats[0].count, app.latency_stats[0].avg,
+                                 app.latency_stats[1].count, app.latency_stats[1].avg,
+                                 app.latency_stats[2].count, app.latency_stats[2].avg);
+	//pj_ansi_sprintf(report, "INVITE-200 count[%d] avg[%d]\n", app.latency_stats[1].count, app.latency_stats[1].avg);
 	write_report(report);
-
 
     } else {
 	/* Server mode */
