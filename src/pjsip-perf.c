@@ -577,6 +577,9 @@ static pj_bool_t logger_on_rx_msg(pjsip_rx_data *rdata) {
     return PJ_FALSE;
 }
 
+
+
+
 /* Notification on outgoing messages */
 static pj_status_t logger_on_tx_msg(pjsip_tx_data *tdata)
 {
@@ -587,6 +590,7 @@ static pj_status_t logger_on_tx_msg(pjsip_tx_data *tdata)
      *	has lower priority than transport layer.
      */
 
+    // 22:47:40.925   pjsip-perf.c  ...TX 824 bytes Request msg INVITE/cseq=124 (tdta0x7f25e40033b0) to UDP 147.75.69.1:5070:
     PJ_LOG(3,(THIS_FILE, "TX %d bytes %s to %s %s:%d:\n"
 			 "%.*s\n"
 			 "--end msg--",
@@ -672,6 +676,7 @@ static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata);
 static void call_on_media_update( pjsip_inv_session *inv, pj_status_t status);
 static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e);
 static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e);
+static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e);
 
 
 /* Module to handle incoming requests callly.
@@ -829,6 +834,7 @@ static pj_status_t init_sip() {
 	inv_cb.on_state_changed = &call_on_state_changed;
 	inv_cb.on_new_session = &call_on_forked;
 	inv_cb.on_media_update = &call_on_media_update;
+	inv_cb.on_tsx_state_changed = &call_on_tsx_state_changed;
 
 	/* Initialize invite session module:  */
 	status = pjsip_inv_usage_init(app.sip_endpt, &inv_cb);
@@ -962,13 +968,44 @@ static void call_on_media_update( pjsip_inv_session *inv,
     }
 }
 
+// pjsip_inv_callback inv_cb;
+    /**
+     * This callback is called whenever any transactions within the session
+     * has changed their state. Application MAY implement this callback, 
+     * e.g. to monitor the progress of an outgoing request, or to send
+     * response to unhandled incoming request (such as INFO).
+     *
+     * This callback is optional.
+     *
+     * @param inv	The invite session.
+     * @param tsx	The transaction, which state has changed.
+     * @param e		The event which has caused the transation state's
+     *			to change.
+     */
+    //void (*on_tsx_state_changed)(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e);
+static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e) {
+	
+	PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[14]));
+	if (tsx->state == 1) {
+		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
+		pj_gettimeofday(start);
+		tsx->mod_data[14] = start;
+	} else {
+		pj_time_val *start = tsx->mod_data[14];
+		pj_time_val now;
+		pj_gettimeofday(&now);
+		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+		PJ_TIME_VAL_SUB(now, *start);
+		PJ_LOG(1, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
+	}
+	return;
+}
 
 /* This is notification from the call when the call state has changed.
  * This is called for client calls only.
  */
 static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 	PJ_UNUSED_ARG(e);
-		PJ_LOG(1, (THIS_FILE, "call_on_state_changed"));
 	/* Bail out if the session has been counted before */
 	if (inv->mod_data[mod_test.id] != NULL)
 		return;
@@ -1292,6 +1329,7 @@ static pj_status_t submit_stateless_job(void) {
     pjsip_tx_data *tdata;
     pj_status_t status;
 
+	PJ_LOG(1, (THIS_FILE, "submit_stateless job"));
     status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method, 
 					&app.client.dst_uri, &app.local_uri,
 					&app.client.dst_uri, &app.local_contact,
