@@ -334,7 +334,9 @@ static pj_status_t send_response(pjsip_inv_session *inv,
     pj_status_t status;
 
 
-    if (*has_initial && inv->invite_tsx) {
+    if (*has_initial) {
+	if (!inv->invite_tsx)
+		return PJ_FALSE;
 	status = pjsip_inv_answer(inv, code, NULL, NULL, &tdata);
     } else {
 	status = pjsip_inv_initial_answer(inv, rdata, code, 
