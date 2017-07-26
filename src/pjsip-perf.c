@@ -64,6 +64,11 @@
 #include <pjlib.h>
 #include <stdio.h>
 
+// INET ADDR
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #if (defined(PJ_WIN32) && PJ_WIN32!=0) || (defined(PJ_WIN64) && PJ_WIN64!=0)
 #  include <windows.h>
 #endif
@@ -770,6 +775,7 @@ static pj_status_t init_sip() {
 	pj_bzero(&addr, sizeof(addr));
 	addr.sin_family = pj_AF_INET();
 	addr.sin_addr.s_addr = 0;
+	// addr.sin_addr.s_addr = inet_addr("127.0.1.1");
 	addr.sin_port = pj_htons((pj_uint16_t)app.local_port);
 
 	if (app.local_addr.slen) {
@@ -797,6 +803,7 @@ static pj_status_t init_sip() {
 	} else {
 	    pjsip_transport *tp;
 
+	//    pjsip_str ip = {"127.0.1.1",9};
 	    transport_type = "udp";
 	    status = pjsip_udp_transport_start(app.sip_endpt, &addr, 
 					       (app.local_addr.slen ? &addrname:NULL),
@@ -987,6 +994,8 @@ static void update_stats (unsigned status_code, pj_str_t *method, pj_time_val *s
 	pj_gettimeofday(&now);
 	pj_gettimeofday(&period);
 	int idx;
+	if (!start)
+		return;
 	PJ_TIME_VAL_SUB(now, *start);
 	int latency = now.msec;
 	pj_bool_t period_cycle = PJ_FALSE;
@@ -1489,8 +1498,8 @@ static int client_thread(void *arg) {
 	unsigned thread_index = (unsigned)(long)(pj_ssize_t)arg;
 	unsigned cycle = 0, last_cycle = 0;
 
-	PJ_LOG(1, (THIS_FILE, "client_thread[%ld]", thread_index));
 	pj_thread_sleep(100);
+	PJ_LOG(1, (THIS_FILE, "client_thread[%ld]", thread_index));
 
 	pj_gettimeofday(&end_time);
 	end_time.sec += app.client.timeout;
