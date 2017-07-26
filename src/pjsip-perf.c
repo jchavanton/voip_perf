@@ -333,7 +333,7 @@ static pj_status_t send_response(pjsip_inv_session *inv,
     pjsip_tx_data *tdata;
     pj_status_t status;
 
-    if (*has_initial) {
+    if (*has_initial && inv->invite_tsx) {
 	status = pjsip_inv_answer(inv, code, NULL, NULL, &tdata);
     } else {
 	status = pjsip_inv_initial_answer(inv, rdata, code, 
