@@ -1142,9 +1142,9 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	// replace ? with random digits
 	pj_str_t target_uri; // T.O.D.O. NEED TO FREE
 	pj_strdup(app.pool, &target_uri, dst_uri);
-	srand(time(NULL));
+
 	char digit[11] = "0123456789";
-	char c[2] = "#";
+	char c[2] = "?";
 	char *ret;
 	do {
 		ret = strstr(target_uri.ptr, c);
@@ -1152,7 +1152,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 			ret[0] = digit[rand()%9];
 		}
 	} while (ret);
-		PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
+//		PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
 	//
 
     /* Create UAC dialog */
@@ -1187,20 +1187,20 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	return status;
     }
 
-   // // inv->dlg->inv_hdr.next
-   // {
-   //     //struct pjsip_hdr hdr_list;
-   //     pjsip_generic_string_hdr *h;
-   //     pj_str_t hname, hvalue;
-   //     hname = pj_str("X-Tech-Prefix");
-   //     hvalue = pj_str("33663170");
-   //     h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
-   //     //pj_list_init(&hdr_list);
-   //     //pj_list_push_back(&hdr_list, h);
-   //     pj_list_push_back(&dlg->inv_hdr, h);
-   //     // void pjsip_msg_add_hdr(pjsip_msg *msg, pjsip_hdr *hdr);
-   //     // pjsip_msg_add_hdr(msg, &hdr_list);
-   // }
+	// inv->dlg->inv_hdr.next
+	{
+	    //struct pjsip_hdr hdr_list;
+	    pjsip_generic_string_hdr *h;
+	    pj_str_t hname, hvalue;
+	    hname = pj_str("X-Tech-Prefix");
+	    hvalue = pj_str("33663170");
+	    h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
+	    //pj_list_init(&hdr_list);
+	    //pj_list_push_back(&hdr_list, h);
+	    pj_list_push_back(&dlg->inv_hdr, h);
+	    // void pjsip_msg_add_hdr(pjsip_msg *msg, pjsip_hdr *hdr);
+	    // pjsip_msg_add_hdr(msg, &hdr_list);
+	}
 
     /* Create initial INVITE request.
      * This INVITE request will contain a perfectly good request and 
@@ -1770,6 +1770,7 @@ int main(int argc, char *argv[]) {
 	static char report[1024];
 	printf("PJSIP Performance Measurement Tool v%s\n (c)2006 pjsip.org\n\n", PJ_VERSION);
 
+	srand(time(NULL));
     if (create_app() != 0)
 	return 1;
 
