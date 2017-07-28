@@ -30,7 +30,8 @@ It is a complete program to measure the
      Also for every call, server will limit the call duration to
      10 seconds, on which the call will be terminated if the client
      doesn't hangup the call.
-  The client will generate responses latency metrics in CSV format.
+     
+ The client will generate SIP responses latency metrics at defined interval in CSV format.
 
 
 ### INSTALLATION (example ubuntu)
