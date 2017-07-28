@@ -9,7 +9,7 @@ set(ROOT_DIR ".")
 set(SRC_DIR "${ROOT_DIR}/src")
 
 set(PERF_SRCS
-	${SRC_DIR}/pjsip-perf.c
+	${SRC_DIR}/voip_perf.c
 )
 
 include_directories(${ROOT_DIR}/pjsua/pjmedia/include)

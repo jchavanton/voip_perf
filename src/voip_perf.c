@@ -21,7 +21,7 @@
 /**
  * \page page_pjsip_perf_c Samples: SIP Performance Benchmark
  *
- * <b>pjsip-perf</b> is a complete program to measure the
+ * <b>voip_perf</b> is a complete program to measure the
  * performance of PJSIP or other SIP endpoints. It consists of two
  * parts:
  *  - the server, to respond incoming requests, and
@@ -49,9 +49,9 @@
  *    10 seconds, on which the call will be terminated if the client
  *    doesn't hangup the call.
  *
- * This file is pjsip-apps/src/samples/pjsip-perf.c
+ * This file is pjsip-apps/src/samples/pjsip-perf.c.c
  *
- * \includelineno pjsip-perf.c
+ * \includelineno pjsip-perf.c.c
  */
 
 /* Include all headers. */
@@ -76,7 +76,7 @@
 #  include <windows.h>
 #endif
 
-#define THIS_FILE	    "pjsip-perf.c"
+#define THIS_FILE	    "voip_perf.c"
 #define DEFAULT_COUNT	    (pjsip_cfg()->tsx.max_count/2>10000?10000:pjsip_cfg()->tsx.max_count/2)
 #define JOB_WINDOW	    1000
 #define TERMINATE_TSX(x,c)
@@ -142,7 +142,7 @@ struct app {
 		pjsip_method method;
 		pj_str_t dst_uri;
 		pj_bool_t stateless;
-		unsigned timeout;
+		unsigned timeout, interval;
 		unsigned job_count, job_submitted, job_finished, job_window;
 		unsigned stat_max_window;
 		pj_time_val first_request;
@@ -614,7 +614,7 @@ static pj_status_t logger_on_tx_msg(pjsip_tx_data *tdata)
      *	has lower priority than transport layer.
      */
 
-    // 22:47:40.925   pjsip-perf.c  ...TX 824 bytes Request msg INVITE/cseq=124 (tdta0x7f25e40033b0) to UDP 147.75.69.1:5070:
+    // 22:47:40.925   voip_perf.c  ...TX 824 bytes Request msg INVITE/cseq=124 (tdta0x7f25e40033b0) to UDP 147.75.69.1:5070:
     PJ_LOG(3,(THIS_FILE, "TX %d bytes %s to %s %s:%d:\n"
 			 "%.*s\n"
 			 "--end msg--",
@@ -827,7 +827,7 @@ static pj_status_t init_sip() {
 
 	app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
 	app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr, 
-				    	     "<sip:pjsip-perf@%.*s:%d;transport=%s>",
+				    	     "<sip:voip_perf@%.*s:%d;transport=%s>",
 					     (int)app.local_addr.slen,
 					     app.local_addr.ptr,
 					     app.local_port,
@@ -1069,28 +1069,8 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
 		pj_gettimeofday(start);
 		tsx->mod_data[14] = start;
-	//} else if (inv->state == 1 && tsx->state == 3)  {
 	} else {
 		pj_time_val *start = tsx->mod_data[14];
-		//pj_time_val now;
-		//pj_gettimeofday(&now);
-		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld][%lld.%lld]", now.sec, now.msec, start->sec, start->msec));
-		//PJ_TIME_VAL_SUB(now, *start);
-		//PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%.*s][%d]latency[%lld.%lld]", tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, now.sec, now.msec));
-		//int latency = now.msec;
-		//if (now.sec)
-		//	latency += now.sec*1000;
-		//if (tsx->status_code == 100) {
-		//	app.latency_stats[0].count++;
-		//	app.latency_stats[0].avg = ((app.latency_stats[0].avg * (app.latency_stats[0].count-1)) + latency) / app.latency_stats[0].count;
-		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[0].count, app.latency_stats[0].avg));
-		//} else if (inv->state < 6 && tsx->status_code == 200) {
-		//	app.latency_stats[1].count++;
-		//	app.latency_stats[1].avg = ((app.latency_stats[1].avg * (app.latency_stats[1].count-1)) + latency) / app.latency_stats[1].count;
-		//	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, tsx->method.name.slen, tsx->method.name.ptr, tsx->status_code, app.latency_stats[1].count, app.latency_stats[1].avg));
-		//} else if (inv->state == 6) {
-		//	
-		//}
 		if (inv->state < 6)
 			update_stats(tsx->status_code, &tsx->method.name, start);
 	}
@@ -1256,21 +1236,24 @@ static void usage(void)
 {
     printf(
 	"Usage:\n"
-	"   pjsip-perf [OPTIONS]        -- to start as server\n"
-	"   pjsip-perf [OPTIONS] URL    -- to call server (possibly itself)\n"
+	"   voip_perf [OPTIONS]        -- to start as server\n"
+	"   voip_perf [OPTIONS] URL    -- to call server (possibly itself)\n"
 	"\n"
 	"where:\n"
 	"   URL                     The SIP URL to be contacted.\n"
+	"                           '?' will be replaced by random digits from 0-9\n"
 	"\n"
 	"Client options:\n"
 	"   --method=METHOD, -m     Set test method (set to INVITE for call benchmark)\n"
         "                           [default: OPTIONS]\n"
-	"   --count=N, -n           Set total number of requests to initiate\n"
+	"   --count=N, -c           Set total number of requests to initiate\n"
 	"                           [default=%d]\n"
 	"   --stateless, -s         Set to operate in stateless mode\n"
 	"                           [default: stateful]\n"
 	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
 	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
+	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
+	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
 	"SDP options (client and server):\n"
 	"   --real-sdp              Generate real SDP from pjmedia, and also perform\n"
@@ -1290,7 +1273,7 @@ static void usage(void)
 	"   --help, -h              Display this screen\n"
 	"   --verbose, -v           Verbose logging (put more than once for even more)\n"
 	"\n"
-	"When started as server, pjsip-perf can be contacted on the following URIs:\n"
+	"When started as server, voip_perf can be contacted on the following URIs:\n"
 	"   - sip:0@server-addr     To handle requests statelessly.\n"
 	"   - sip:1@server-addr     To handle requests statefully.\n"
 	"   - sip:2@server-addr     To handle INVITE call.\n",
@@ -1316,6 +1299,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "help",	    0, 0, 'h' },
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
+	{ "interval",	    1, 0, 'i' },
 	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 	{ "verbose",        0, 0, 'v' },
 	{ "use-tcp",	    0, 0, 'T' },
@@ -1335,125 +1319,115 @@ static pj_status_t init_options(int argc, char *argv[])
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
+    app.latency_stats_period_duration = 1;
     app.log_level = 3;
 
 
     /* Parse options */
     pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:hsv", 
+    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:i:hsv", 
 			    long_options, &option_index))!=-1) 
     {
 	switch (c) {
 	case 'p':
-	    app.local_port = my_atoi(pj_optarg);
-	    if (app.local_port < 0 || app.local_port > 65535) {
-		PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
-		return -1;
-	    }
-	    break;
-
+		app.local_port = my_atoi(pj_optarg);
+		if (app.local_port < 0 || app.local_port > 65535) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
+			return -1;
+		}
+		break;
 	case 'c':
-	    app.client.job_count = my_atoi(pj_optarg);
-	    if (app.client.job_count > pjsip_cfg()->tsx.max_count)
-		PJ_LOG(3,(THIS_FILE, 
+		app.client.job_count = my_atoi(pj_optarg);
+		if (app.client.job_count > pjsip_cfg()->tsx.max_count)
+			PJ_LOG(3,(THIS_FILE, 
 			  "Warning: --count value (%d) exceeds maximum "
 			  "transaction count (%d)", app.client.job_count,
 			  pjsip_cfg()->tsx.max_count));
-	    break;
-
+		break;
 	case OPT_THREAD_COUNT:
-	    app.thread_count = my_atoi(pj_optarg);
-	    if (app.thread_count < 1 || app.thread_count > 16) {
-		PJ_LOG(3,(THIS_FILE, "Invalid --thread-count %s", pj_optarg));
-		return -1;
-	    }
-	    break;
-
+		app.thread_count = my_atoi(pj_optarg);
+		if (app.thread_count < 1 || app.thread_count > 16) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --thread-count %s", pj_optarg));
+			return -1;
+		}
+		break;
 	case 'm':
-	    {
+		{
 		pj_str_t temp = pj_str((char*)pj_optarg);
 		pjsip_method_init_np(&app.client.method, &temp);
-	    }
-	    break;
-
+		}
+		break;
 	case 'h':
-	    usage();
-	    return -1;
-
+		usage();
+		return -1;
 	case 's':
-	    app.client.stateless = PJ_TRUE;
-	    break;
-
+		app.client.stateless = PJ_TRUE;
+		break;
 	case OPT_REAL_SDP:
-	    app.real_sdp = 1;
-	    break;
-
+		app.real_sdp = 1;
+		break;
 	case 'v':
-	    app.log_level++;
-	    break;
-
+		app.log_level++;
+		break;
 	case 't':
-	    app.client.timeout = my_atoi(pj_optarg);
-	    if (app.client.timeout > 600) {
-		PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
-		return -1;
-	    }
-	    break;
-
+		app.client.timeout = my_atoi(pj_optarg);
+		if (app.client.timeout > 600) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
+			return -1;
+		}
+		break;
+	case 'i':
+		app.latency_stats_period_duration = my_atoi(pj_optarg);
+		if (app.latency_stats_period_duration < 1) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
+			return -1;
+		}
+		break;
 	case 'w':
-	    app.client.job_window = my_atoi(pj_optarg);
-	    if (app.client.job_window <= 0) {
-		PJ_LOG(3,(THIS_FILE, "Invalid --window %s", pj_optarg));
-		return -1;
-	    }
-	    break;
-
+		app.client.job_window = my_atoi(pj_optarg);
+		if (app.client.job_window <= 0) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --window %s", pj_optarg));
+			return -1;
+		}
+		break;
 	case 'T':
-	    app.use_tcp = PJ_TRUE;
-	    break;
-
+		app.use_tcp = PJ_TRUE;
+		break;
 	case 'd':
-	    app.server.delay = my_atoi(pj_optarg);
-	    if (app.server.delay > 3600) {
-		PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", 
-			  pj_optarg));
-		return -1;
-	    }
-	    break;
-
+		app.server.delay = my_atoi(pj_optarg);
+		if (app.server.delay > 3600) {
+		PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
+			return -1;
+		}
+		break;
 	case OPT_TRYING:
-	    app.server.send_trying = 1;
-	    break;
-
+		app.server.send_trying = 1;
+		break;
 	case OPT_RINGING:
-	    app.server.send_ringing = 1;
-	    break;
-
+		app.server.send_ringing = 1;
+		break;
 	default:
-	    PJ_LOG(1,(THIS_FILE, 
-		      "Invalid argument. Use --help to see help"));
-	    return -1;
+		PJ_LOG(1,(THIS_FILE, "Invalid argument. Use --help to see help"));
+		return -1;
 	}
     }
 
-    if (pj_optind != argc) {
-
-	if (verify_sip_url(argv[pj_optind]) != PJ_SUCCESS) {
-	    PJ_LOG(1,(THIS_FILE, "Invalid SIP URI %s", argv[pj_optind]));
-	    return -1;
+	if (pj_optind != argc) {
+		if (verify_sip_url(argv[pj_optind]) != PJ_SUCCESS) {
+		    PJ_LOG(1,(THIS_FILE, "Invalid SIP URI %s", argv[pj_optind]));
+		    return -1;
+		}
+		app.client.dst_uri = pj_str(argv[pj_optind]);
+		
+		pj_optind++;
 	}
-	app.client.dst_uri = pj_str(argv[pj_optind]);
-	
-	pj_optind++;
 
-    }
+	if (pj_optind != argc) {
+		PJ_LOG(1,(THIS_FILE, "Error: unknown options %s", argv[pj_optind]));
+		return -1;
+	}
 
-    if (pj_optind != argc) {
-	PJ_LOG(1,(THIS_FILE, "Error: unknown options %s", argv[pj_optind]));
-	return -1;
-    }
-
-    return 0;
+	return 0;
 }
 
 
@@ -1815,7 +1789,6 @@ int main(int argc, char *argv[]) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
 	pj_gettimeofday(&app.latency_stats_period_start);
-	app.latency_stats_period_duration = 1;
 	log_stats_output = fopen(stats_fn, "w+");
 	fflush(log_stats_output);
 	fprintf(log_stats_output,"TIMESTAMP,METHOD,COUNT,INVITE-100,COUNT,INVITE-180,COUNT,INVITE-200\n");
@@ -1935,7 +1908,7 @@ int main(int argc, char *argv[]) {
 	pj_status_t status;
 	unsigned i;
 
-	puts("pjsip-perf started in server-mode");
+	puts("voip_perf started in server-mode");
 
 	printf("Receiving requests on the following URIs:\n"
 	       "  sip:0@%.*s:%d%s    for stateless handling\n"
