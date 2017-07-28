@@ -1,5 +1,5 @@
 ### ABOUT
-voip_perf is initialy a fork from pjsip-apps/src/samples/pjsip-perf.c
+voip_perf is initially a fork from pjsip-apps/src/samples/pjsip-perf.c
 
 It is a complete program to measure the
  performance of PJSIP or other SIP endpoints. It consists of two
