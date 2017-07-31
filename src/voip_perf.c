@@ -54,6 +54,7 @@
  * \includelineno pjsip-perf.c.c
  */
 
+#define PJSIP_MAX_TSX_COUNT (10240-1)
 /* Include all headers. */
 #include <pjsip.h>
 #include <pjmedia.h>
@@ -63,6 +64,8 @@
 #include <pjlib-util.h>
 #include <pjlib.h>
 #include <stdio.h>
+
+
 
 // random
 #include <time.h>
@@ -157,6 +160,8 @@ struct app {
 		unsigned timeout, interval;
 		unsigned job_count, job_submitted, job_finished, job_window;
 		unsigned stat_max_window;
+		unsigned call_burst;
+		unsigned max_call_per_ms;
 		pj_time_val first_request;
 		pj_time_val requests_sent;
 		pj_time_val last_completion;
@@ -1354,6 +1359,7 @@ static pj_status_t init_options(int argc, char *argv[])
     app.local_port = 5060;
     app.thread_count = 1;
     app.client.job_count = DEFAULT_COUNT;
+    app.client.max_call_per_ms = 10;
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
@@ -1599,6 +1605,11 @@ static int client_thread(void *arg) {
 			if (count == 0)
 				break;
 			++cycle;
+		}
+		// max_call_per_ms
+		if (app.client.call_burst > app.client.max_call_per_ms) {
+			pj_thread_sleep(1);
+			app.client.call_burst = 0;
 		}
 
 		/* Submit one job */
