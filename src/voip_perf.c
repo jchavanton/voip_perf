@@ -113,6 +113,18 @@ static pj_str_t dummy_sdp_str = {
 static pj_str_t mime_application = { "application", 11};
 static pj_str_t mime_sdp = {"sdp", 3};
 
+typedef struct  {
+	int32_t min;
+	int32_t max;
+	//float current; // Current value, may not be computed yet
+	float average; // average for N-1
+	float stdev;   // last standard deviation
+	float last_q;  // q for N-1
+	int32_t count;
+	//float recent_average;
+	//float first_average;
+} voip_perf_metric_t;
+
 struct srv_state {
 	unsigned stateless_cnt;
 	unsigned stateful_cnt;
@@ -159,13 +171,10 @@ struct app {
 		struct srv_state prev_state;
 		struct srv_state cur_state;
 	} server;
-
-	struct {
-		float avg;
-		int count;
-	} latency_stats[3];
-	pj_time_val latency_stats_period_start;
-	int latency_stats_period_duration;
+	voip_perf_metric_t latency_metrics[3];
+	// latency_metrics[3];
+	pj_time_val latency_metrics_period_start;
+	int latency_metrics_period_duration;
 
 	pj_lock_t *stats_lock;
 
@@ -657,21 +666,12 @@ static pj_status_t latency_on_tx_request(pjsip_tx_data *tdata) {
 	}
 	return PJ_SUCCESS;
 }
-
 static pj_bool_t latency_on_rx_response(pjsip_rx_data *rdata) {
-	if (rdata->msg_info.msg &&  rdata->msg_info.msg->type == PJSIP_RESPONSE_MSG) {
-		PJ_LOG(4, (THIS_FILE, "latency_on_rx_response[%d][%lld]", rdata->msg_info.msg->line.status.code, rdata->pkt_info.timestamp));
-	}
 	return PJ_FALSE;
 }
-
 void latency_on_tsx_state(pjsip_transaction *tsx, pjsip_event *event) {
-	PJ_LOG(1, (THIS_FILE, "latency_on_tsx_state[%d]", tsx->state ));
 	return;
 }
-// mod_stateful_on_tx_request
-
-
 
 /* The module instance. */
 static pjsip_module msg_latency_mon = 
@@ -994,17 +994,51 @@ static void call_on_media_update( pjsip_inv_session *inv,
     }
 }
 
-
-static void update_stats (unsigned status_code, pj_str_t *method, pj_time_val *start) {
-	pj_time_val now, period;
-	pj_gettimeofday(&now);
+static void metric_check_period(pj_bool_t end_now) {
+	pj_time_val period;
 	pj_gettimeofday(&period);
+	int seconds = period.sec;
+	PJ_TIME_VAL_SUB(period, app.latency_metrics_period_start);
+
+	if (end_now || period.sec >= app.latency_metrics_period_duration) {
+		pj_gettimeofday(&app.latency_metrics_period_start);
+		fprintf(log_stats_output, "%d,INVITE,%d,%.2f,%.2f,%d,%d,%.2f,%.2f,%d,%d,%.2f,%.2f,%d\n", seconds,
+				app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max,
+				app.latency_metrics[1].count, app.latency_metrics[1].average, app.latency_metrics[1].stdev, app.latency_metrics[1].max,
+				app.latency_metrics[2].count, app.latency_metrics[2].average, app.latency_metrics[2].stdev, app.latency_metrics[2].max);
+		PJ_LOG(1, (THIS_FILE, "metric_update period[%lld]", period.sec));
+		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
+	                   app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max));
+		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
+	                   app.latency_metrics[1].count, app.latency_metrics[1].average, app.latency_metrics[1].stdev, app.latency_metrics[1].max));
+		PJ_LOG(1, (THIS_FILE, "INVITE-200 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
+	                   app.latency_metrics[2].count, app.latency_metrics[2].average, app.latency_metrics[2].stdev, app.latency_metrics[2].max));
+		app.latency_metrics[0].min = 0;
+		app.latency_metrics[0].max = 0;
+		app.latency_metrics[0].count = 0;
+		app.latency_metrics[0].stdev = 0.0f;
+		app.latency_metrics[0].average = 0.0f;
+		app.latency_metrics[1].min = 0;
+		app.latency_metrics[1].max = 0;
+		app.latency_metrics[1].count = 0;
+		app.latency_metrics[1].stdev = 0.0f;
+		app.latency_metrics[1].average = 0.0f;
+		app.latency_metrics[2].min = 0;
+		app.latency_metrics[2].max = 0;
+		app.latency_metrics[2].count = 0;
+		app.latency_metrics[2].stdev = 0.0f;
+		app.latency_metrics[2].average = 0.0f;
+	}
+}
+static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val *start) {
+	pj_time_val now;
+	pj_gettimeofday(&now);
 	int idx;
+	float current_average, current_q;
 	if (!start)
 		return;
 	PJ_TIME_VAL_SUB(now, *start);
 	int latency = now.msec;
-	pj_bool_t period_cycle = PJ_FALSE;
 	if (now.sec)
 		latency += now.sec*1000;
 	if (status_code == 100) {
@@ -1018,32 +1052,36 @@ static void update_stats (unsigned status_code, pj_str_t *method, pj_time_val *s
 	}
 
 	pj_lock_acquire(app.stats_lock);
-	app.latency_stats[idx].count++;
-	app.latency_stats[idx].avg = ((app.latency_stats[idx].avg * (app.latency_stats[idx].count-1)) + latency) / app.latency_stats[idx].count;
 
-	int seconds = period.sec;
-	PJ_TIME_VAL_SUB(period, app.latency_stats_period_start);
-	if (period.sec >= app.latency_stats_period_duration) {
-		pj_gettimeofday(&app.latency_stats_period_start);
-		period_cycle = PJ_TRUE;
-		fprintf(log_stats_output, "%d,INVITE,%d,%.1f,%d,%.1f,%d,%.1f\n", seconds,
-				app.latency_stats[0].count, app.latency_stats[0].avg,
-				app.latency_stats[1].count, app.latency_stats[1].avg,
-				app.latency_stats[2].count, app.latency_stats[2].avg);
-		PJ_LOG(1, (THIS_FILE, "update_stats period[%lld]", period.sec));
-		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]", app.latency_stats[0].count, app.latency_stats[0].avg));
-		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]", app.latency_stats[1].count, app.latency_stats[1].avg));
-		PJ_LOG(1, (THIS_FILE, "INVITE-200 count[%d] avg[%.1fms]", app.latency_stats[2].count, app.latency_stats[2].avg));
-		app.latency_stats[0].count = 0;
-		app.latency_stats[0].avg = 0.0f;
-		app.latency_stats[1].count = 0;
-		app.latency_stats[1].avg = 0.0f;
-		app.latency_stats[2].count = 0;
-		app.latency_stats[2].avg = 0.0f;
+	app.latency_metrics[idx].count++;
+	if (app.latency_metrics[idx].count == 1) {
+		app.latency_metrics[idx].stdev = 0.0f;
+		app.latency_metrics[idx].last_q = 0.0f;
+		app.latency_metrics[idx].max = latency;
+		app.latency_metrics[idx].min = latency;
+		app.latency_metrics[idx].average = latency;
 	}
+	if (app.latency_metrics[idx].min > latency)
+		app.latency_metrics[idx].min = latency;
+	if (app.latency_metrics[idx].max < latency)
+		app.latency_metrics[idx].max = latency;
+
+	/* standard deviation from global average */
+	if (app.latency_metrics[idx].count > 1) {
+		current_average = app.latency_metrics[idx].average + (latency - app.latency_metrics[idx].average) / app.latency_metrics[idx].count;
+		current_q = app.latency_metrics[idx].last_q + (latency - app.latency_metrics[idx].average)*(latency - current_average);
+		app.latency_metrics[idx].average = current_average;
+		app.latency_metrics[idx].last_q = current_q;
+		app.latency_metrics[idx].stdev = sqrt(current_q/(app.latency_metrics[idx].count-1));
+	}
+	PJ_LOG(4, (THIS_FILE, "metric_update [%lld.%lld] [%.*s][%d]count[%d]value[%d]avg[%.4f]std[%.4f]",
+                               now.sec, now.msec, method->slen, method->ptr, status_code,
+                               app.latency_metrics[idx].count, latency, app.latency_metrics[idx].average, app.latency_metrics[idx].stdev));
+
+	metric_check_period(PJ_FALSE);
+
 	pj_lock_release(app.stats_lock);
 
-	PJ_LOG(4, (THIS_FILE, "update_stats [%lld.%lld] [%.*s][%d]count[%d]avg[%.1f]", now.sec, now.msec, method->slen, method->ptr, status_code, app.latency_stats[idx].count, app.latency_stats[idx].avg));
 
 }
 
@@ -1072,7 +1110,7 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	} else {
 		pj_time_val *start = tsx->mod_data[14];
 		if (inv->state < 6)
-			update_stats(tsx->status_code, &tsx->method.name, start);
+			metric_update(tsx->status_code, &tsx->method.name, start);
 	}
 	return;
 }
@@ -1319,7 +1357,7 @@ static pj_status_t init_options(int argc, char *argv[])
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
-    app.latency_stats_period_duration = 1;
+    app.latency_metrics_period_duration = 1;
     app.log_level = 3;
 
 
@@ -1377,8 +1415,8 @@ static pj_status_t init_options(int argc, char *argv[])
 		}
 		break;
 	case 'i':
-		app.latency_stats_period_duration = my_atoi(pj_optarg);
-		if (app.latency_stats_period_duration < 1) {
+		app.latency_metrics_period_duration = my_atoi(pj_optarg);
+		if (app.latency_metrics_period_duration < 1) {
 			PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
 			return -1;
 		}
@@ -1788,10 +1826,10 @@ int main(int argc, char *argv[]) {
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
-	pj_gettimeofday(&app.latency_stats_period_start);
+	pj_gettimeofday(&app.latency_metrics_period_start);
 	log_stats_output = fopen(stats_fn, "w+");
 	fflush(log_stats_output);
-	fprintf(log_stats_output,"TIMESTAMP,METHOD,COUNT,INVITE-100,COUNT,INVITE-180,COUNT,INVITE-200\n");
+	fprintf(log_stats_output,"TIMESTAMP,METHOD,100-CNT,100-AVG,100-STD,100-MAX,180-CNT,180-AVG,180-STD,180-MAX,200-CNT,200-AVG,200-STD,200-MAX\n");
 
 	/* Get the job name */
 	if (app.client.method.id == PJSIP_INVITE_METHOD) {
@@ -1827,8 +1865,8 @@ int main(int argc, char *argv[]) {
 	    app.thread[i] = NULL;
 	}
 
-	// PJ
-	PJ_LOG(3,(THIS_FILE, "done done done"));
+	metric_check_period(PJ_TRUE);
+
 	if (app.client.last_completion.sec) {
 	    pj_time_val duration;
 	    duration = app.client.last_completion;
@@ -1855,6 +1893,7 @@ int main(int argc, char *argv[]) {
 	    puts("\ntimed-out!\n");
 	else
 	    puts("\ndone.\n");
+
 
 	pj_ansi_snprintf(
 	    report, sizeof(report),
@@ -1895,11 +1934,7 @@ int main(int argc, char *argv[]) {
 
 	pj_ansi_sprintf(report, "Maximum outstanding job: %d", 
 			app.client.stat_max_window);
-	pj_ansi_sprintf(report, "INVITE-100 count[%d]avg[%.1fms]\nINVITE-180 count[%d]avg[%.1fms]\nINVITE-200 count[%d]avg[%.1fms]\n",
-                                 app.latency_stats[0].count, app.latency_stats[0].avg,
-                                 app.latency_stats[1].count, app.latency_stats[1].avg,
-                                 app.latency_stats[2].count, app.latency_stats[2].avg);
-	//pj_ansi_sprintf(report, "INVITE-200 count[%d] avg[%d]\n", app.latency_stats[1].count, app.latency_stats[1].avg);
+
 	write_report(report);
 
     } else {
