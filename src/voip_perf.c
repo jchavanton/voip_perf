@@ -1092,10 +1092,7 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val *s
                                app.latency_metrics[idx].count, latency, app.latency_metrics[idx].average, app.latency_metrics[idx].stdev));
 
 	metric_check_period(PJ_FALSE);
-
 	pj_lock_release(app.stats_lock);
-
-
 }
 
 // pjsip_inv_callback inv_cb;
@@ -1116,6 +1113,8 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val *s
 static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e) {
 	
 	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[14]));
+	if (tsx->method.id != PJSIP_INVITE_METHOD)
+		return;
 	if (tsx->state == 1) {
 		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
 		pj_gettimeofday(start);
