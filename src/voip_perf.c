@@ -54,7 +54,7 @@
  * \includelineno pjsip-perf.c.c
  */
 
-#define PJSIP_MAX_TSX_COUNT (10240-1)
+#define PJSIP_MAX_TSX_COUNT (131072-1)
 // PJSIP_MAX_TSX_COUNT
 /* Include all headers. */
 #include <pjsip.h>
@@ -161,6 +161,7 @@ struct app {
 		unsigned timeout, interval;
 		unsigned job_count, job_submitted, job_finished, job_window;
 		unsigned stat_max_window;
+		unsigned call_duration;
 		unsigned call_burst;
 		unsigned max_call_per_ms;
 		unsigned max_call_per_s;
@@ -192,8 +193,13 @@ static const char *stats_fn = "/tmp/voip_perf_stats.log";
 
 struct call {
 	pjsip_inv_session *inv;
- 	pj_timer_entry ans_timer;
+	pj_timer_entry ans_timer;
 };
+
+typedef struct outbound_call {
+	pjsip_inv_session *inv;
+	pj_timer_entry hangup_timer;
+} outbound_call_t;
 
 static void app_perror(const char *sender, const char *title, pj_status_t status) {
 	char errmsg[PJ_ERR_MSG_SIZE];
@@ -1122,6 +1128,18 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	return;
 }
 
+
+static void hangup_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
+	struct call *call = entry->user_data;
+	PJ_UNUSED_ARG(h);
+	pjsip_tx_data *tdata;
+	pj_status_t status;
+	PJ_LOG(4, (THIS_FILE, "hangup_timer "));
+	status = pjsip_inv_end_session(call->inv, PJSIP_SC_OK, NULL, &tdata);
+	if (status == PJ_SUCCESS && tdata)
+		status = pjsip_inv_send_msg(call->inv, tdata);
+}
+
 /* This is notification from the call when the call state has changed.
  * This is called for client calls only.
  */
@@ -1137,11 +1155,26 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 	if (inv->state == PJSIP_INV_STATE_CONFIRMED) {
 		pjsip_tx_data *tdata;
 		pj_status_t status;
-		//report_completion(200);
-		//inv->mod_data[mod_test.id] = (void*)1;
-		status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
-		if (status == PJ_SUCCESS && tdata)
-			status = pjsip_inv_send_msg(inv, tdata);
+
+		/* Simulate call disconnection delay */
+		if (app.client.call_duration) {
+			outbound_call_t *call = pj_pool_zalloc(app.pool, sizeof(struct call));
+			call->inv = inv;
+			pj_time_val delay;
+			call->hangup_timer.id = 1;
+			call->hangup_timer.user_data = call;
+			call->hangup_timer.cb = &hangup_timer_cb;
+
+			delay.sec = app.client.call_duration;
+			delay.msec = 0;
+			pj_time_val_normalize(&delay);
+			PJ_LOG(4, (THIS_FILE, "call_on_state_changed duration[%d] call[%d] ", delay.sec, inv->state));
+			pjsip_endpt_schedule_timer(app.sip_endpt, &call->hangup_timer, &delay);
+		} else {
+			status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
+			if (status == PJ_SUCCESS && tdata)
+				status = pjsip_inv_send_msg(inv, tdata);
+		}
 	} else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
 		report_completion(inv->cause);
 		inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
@@ -1157,12 +1190,11 @@ static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e) {
 
 /* Make outgoing call */
 static pj_status_t make_call(const pj_str_t *dst_uri) {
-    struct call *call;
-    pjsip_dialog *dlg;
-    pjmedia_sdp_session *sdp;
-    pjsip_tx_data *tdata;
-    pj_status_t status;
-
+	struct call *call;
+	pjsip_dialog *dlg;
+	pjmedia_sdp_session *sdp;
+	pjsip_tx_data *tdata;
+	pj_status_t status;
 
 	// replace ? with random digits
 	pj_str_t target_uri; // T.O.D.O. NEED TO FREE
@@ -1177,47 +1209,47 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 			ret[0] = digit[rand()%9];
 		}
 	} while (ret);
-//		PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
+	//	PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
 	//
 
-    /* Create UAC dialog */
-    status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
+	/* Create UAC dialog */
+	status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
 				   &app.local_uri,	/* local URI	    */
 				   &app.local_contact,	/* local Contact    */
 				   &target_uri,		/* remote URI	    */
 				   &target_uri,		/* remote target    */
 				   &dlg);		/* dialog	    */
-    if (status != PJ_SUCCESS) {
-	return status;
-    }
-
-    /* Create call */
-    call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
-
-    /* Create SDP */
-    if (app.real_sdp) {
-	status = pjmedia_endpt_create_sdp(app.med_endpt, dlg->pool, 1, 
-					  app.skinfo, &sdp);
 	if (status != PJ_SUCCESS) {
-	    pjsip_dlg_terminate(dlg);
-	    return status;
+		return status;
 	}
-    } else
-	sdp = app.dummy_sdp;
 
-    /* Create the INVITE session. */
-    status = pjsip_inv_create_uac( dlg, sdp, 0, &call->inv);
-    if (status != PJ_SUCCESS) {
-	pjsip_dlg_terminate(dlg);
-	return status;
-    }
+	/* Create call */
+	call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
+
+	/* Create SDP */
+	if (app.real_sdp) {
+		status = pjmedia_endpt_create_sdp(app.med_endpt, dlg->pool, 1, app.skinfo, &sdp);
+		if (status != PJ_SUCCESS) {
+			pjsip_dlg_terminate(dlg);
+			return status;
+		}
+	} else {
+		sdp = app.dummy_sdp;
+	}
+
+	/* Create the INVITE session. */
+	status = pjsip_inv_create_uac( dlg, sdp, 0, &call->inv);
+	if (status != PJ_SUCCESS) {
+		pjsip_dlg_terminate(dlg);
+		return status;
+	}
 
 	// inv->dlg->inv_hdr.next
 	{
 	    //struct pjsip_hdr hdr_list;
 	    pjsip_generic_string_hdr *h;
 	    pj_str_t hname, hvalue;
-	    hname = pj_str("X-Tech-Prefix");
+	    hname = pj_str("X-My-Tech-Prefix");
 	    hvalue = pj_str("33663170");
 	    h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
 	    //pj_list_init(&hdr_list);
@@ -1227,25 +1259,23 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	    // pjsip_msg_add_hdr(msg, &hdr_list);
 	}
 
-    /* Create initial INVITE request.
-     * This INVITE request will contain a perfectly good request and 
-     * an SDP body as well. */
-    status = pjsip_inv_invite(call->inv, &tdata);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Create initial INVITE request.
+	 * This INVITE request will contain a perfectly good request and 
+	 * an SDP body as well. */
+	status = pjsip_inv_invite(call->inv, &tdata);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 	{
 	pjsip_msg *msg = tdata->msg;
 	PJ_LOG(4, (THIS_FILE, "make_call msg[%d]", msg->type ));
 	}
 
+	/* Send initial INVITE request.
+	 * From now on, the invite session's state will be reported to us
+	 * via the invite session callbacks. */
+	status = pjsip_inv_send_msg(call->inv, tdata);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-
-    /* Send initial INVITE request.
-     * From now on, the invite session's state will be reported to us
-     * via the invite session callbacks. */
-    status = pjsip_inv_send_msg(call->inv, tdata);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-
-    return PJ_SUCCESS;
+	return PJ_SUCCESS;
 }
 
 
@@ -1314,6 +1344,7 @@ static void usage(void)
 	"   --trying                Send 100/Trying response (server, default no)\n"
 	"   --ringing               Send 180/Ringing response (server, default no)\n"
 	"   --delay=MS, -d          Delay answering call by MS (server, default no)\n"
+	"   --duration=S, -D        Duration of the call before disconnecting in S (client, default 0)\n"
 	"\n"
 	"Misc options:\n"
 	"   --help, -h              Display this screen\n"
@@ -1353,6 +1384,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "use-tcp",	    0, 0, 'T' },
 	{ "window",	    1, 0, 'w' },
 	{ "delay",	    1, 0, 'd' },
+	{ "duration",	    1, 0, 'D' },
 	{ "trying",	    0, 0, OPT_TRYING},
 	{ "ringing",	    0, 0, OPT_RINGING},
 	{ NULL, 0, 0, 0 },
@@ -1375,7 +1407,7 @@ static pj_status_t init_options(int argc, char *argv[])
 
     /* Parse options */
     pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:C:i:hsv", 
+    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:D:C:i:hsv", 
 			    long_options, &option_index))!=-1) 
     {
 	switch (c) {
@@ -1461,6 +1493,13 @@ static pj_status_t init_options(int argc, char *argv[])
 		app.server.delay = my_atoi(pj_optarg);
 		if (app.server.delay > 36000) {
 		PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
+			return -1;
+		}
+		break;
+	case 'D':
+		app.client.call_duration = my_atoi(pj_optarg);
+		if (app.client.call_duration > 3600) {
+		PJ_LOG(3,(THIS_FILE, "I think --duration %s is too long", pj_optarg));
 			return -1;
 		}
 		break;
@@ -1683,7 +1722,7 @@ static int client_thread(void *arg) {
 		   app.client.job_finished < app.client.job_count && 
 		   !app.thread_quit) 
 	{
-		pj_time_val timeout = { 0, 1 };
+		pj_time_val timeout = { 0, 10 }; // TIMEOUT 1
 		unsigned i;
 
 		for (i=0; i<1000; ++i) {
