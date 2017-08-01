@@ -55,6 +55,7 @@
  */
 
 #define PJSIP_MAX_TSX_COUNT (10240-1)
+// PJSIP_MAX_TSX_COUNT
 /* Include all headers. */
 #include <pjsip.h>
 #include <pjmedia.h>
@@ -162,6 +163,7 @@ struct app {
 		unsigned stat_max_window;
 		unsigned call_burst;
 		unsigned max_call_per_ms;
+		unsigned max_call_per_s;
 		pj_time_val first_request;
 		pj_time_val requests_sent;
 		pj_time_val last_completion;
@@ -1295,6 +1297,7 @@ static void usage(void)
 	"                           [default: stateful]\n"
 	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
 	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
+	"   --call-ms=COUNT, -C     Set maximum amount of call per ms [default: no limit]\n"
 	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
 	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
@@ -1343,6 +1346,8 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
 	{ "interval",	    1, 0, 'i' },
+	{ "call-ms",	    1, 0, 'C' },
+	{ "call-s",	    1, 0, 'S' },
 	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 	{ "verbose",        0, 0, 'v' },
 	{ "use-tcp",	    0, 0, 'T' },
@@ -1359,7 +1364,8 @@ static pj_status_t init_options(int argc, char *argv[])
     app.local_port = 5060;
     app.thread_count = 1;
     app.client.job_count = DEFAULT_COUNT;
-    app.client.max_call_per_ms = 10;
+    app.client.max_call_per_ms = 0;
+    app.client.max_call_per_s = 0;
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
@@ -1369,7 +1375,7 @@ static pj_status_t init_options(int argc, char *argv[])
 
     /* Parse options */
     pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:i:hsv", 
+    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:C:i:hsv", 
 			    long_options, &option_index))!=-1) 
     {
 	switch (c) {
@@ -1427,6 +1433,20 @@ static pj_status_t init_options(int argc, char *argv[])
 			return -1;
 		}
 		break;
+	case 'C':
+		app.client.max_call_per_ms = my_atoi(pj_optarg);
+		if (app.client.max_call_per_ms < 1) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --call-ms %s", pj_optarg));
+			return -1;
+		}
+		break;
+	case 'S':
+		app.client.max_call_per_s = my_atoi(pj_optarg);
+		if (app.client.max_call_per_s < 1) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --call-s %s", pj_optarg));
+			return -1;
+		}
+		break;
 	case 'w':
 		app.client.job_window = my_atoi(pj_optarg);
 		if (app.client.job_window <= 0) {
@@ -1439,7 +1459,7 @@ static pj_status_t init_options(int argc, char *argv[])
 		break;
 	case 'd':
 		app.server.delay = my_atoi(pj_optarg);
-		if (app.server.delay > 3600) {
+		if (app.server.delay > 36000) {
 		PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
 			return -1;
 		}
@@ -1607,10 +1627,11 @@ static int client_thread(void *arg) {
 			++cycle;
 		}
 		// max_call_per_ms
-		if (app.client.call_burst > app.client.max_call_per_ms) {
+		if (app.client.max_call_per_ms && app.client.call_burst > app.client.max_call_per_ms) {
 			pj_thread_sleep(1);
 			app.client.call_burst = 0;
 		}
+		app.client.call_burst++;
 
 		/* Submit one job */
 		if (app.client.method.id == PJSIP_INVITE_METHOD) {
