@@ -163,8 +163,9 @@ struct app {
 		unsigned stat_max_window;
 		unsigned call_duration;
 		unsigned call_burst;
-		unsigned max_call_per_ms;
-		unsigned max_call_per_s;
+		unsigned max_call_per_burst;
+		unsigned call_burst_interval;
+		pj_time_val burst_start;
 		pj_time_val first_request;
 		pj_time_val requests_sent;
 		pj_time_val last_completion;
@@ -1326,7 +1327,8 @@ static void usage(void)
 	"                           [default: stateful]\n"
 	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
 	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
-	"   --call-ms=COUNT, -C     Set maximum amount of call per ms [default: no limit]\n"
+	"   --call-per-burst=COUNT, -C     Set maximum amount of call per burst period [default: no limit]\n"
+	"   --call-burst-interval-ms=MSEC, -B     Set duration of a burst period [default: 1 ms]\n"
 	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
 	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
@@ -1376,8 +1378,8 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
 	{ "interval",	    1, 0, 'i' },
-	{ "call-ms",	    1, 0, 'C' },
-	{ "call-s",	    1, 0, 'S' },
+	{ "call-per-burst",	    1, 0, 'C' },
+	{ "call-burst-interval-ms",	    1, 0, 'B' },
 	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 	{ "verbose",        0, 0, 'v' },
 	{ "use-tcp",	    0, 0, 'T' },
@@ -1395,14 +1397,13 @@ static pj_status_t init_options(int argc, char *argv[])
     app.local_port = 5060;
     app.thread_count = 1;
     app.client.job_count = DEFAULT_COUNT;
-    app.client.max_call_per_ms = 0;
-    app.client.max_call_per_s = 0;
+    app.client.max_call_per_burst = 0;
+    app.client.call_burst_interval = 1;
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
     app.latency_metrics_period_duration = 1;
     app.log_level = 3;
-
 
     /* Parse options */
     pj_optind = 0;
@@ -1452,7 +1453,7 @@ static pj_status_t init_options(int argc, char *argv[])
 		break;
 	case 't':
 		app.client.timeout = my_atoi(pj_optarg);
-		if (app.client.timeout > 600) {
+		if (app.client.timeout > 3600) {
 			PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
 			return -1;
 		}
@@ -1465,16 +1466,16 @@ static pj_status_t init_options(int argc, char *argv[])
 		}
 		break;
 	case 'C':
-		app.client.max_call_per_ms = my_atoi(pj_optarg);
-		if (app.client.max_call_per_ms < 1) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --call-ms %s", pj_optarg));
+		app.client.max_call_per_burst = my_atoi(pj_optarg);
+		if (app.client.max_call_per_burst < 1) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --call-per-burst %s", pj_optarg));
 			return -1;
 		}
 		break;
-	case 'S':
-		app.client.max_call_per_s = my_atoi(pj_optarg);
-		if (app.client.max_call_per_s < 1) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --call-s %s", pj_optarg));
+	case 'B':
+		app.client.call_burst_interval = my_atoi(pj_optarg);
+		if (app.client.call_burst_interval < 1) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --call-burst-interval %s", pj_optarg));
 			return -1;
 		}
 		break;
@@ -1664,13 +1665,17 @@ static int client_thread(void *arg) {
 				break;
 			++cycle;
 		}
-		// max_call_per_ms
-		if (app.client.max_call_per_ms && app.client.call_burst > app.client.max_call_per_ms) {
-			pj_thread_sleep(1);
+
+		if (app.client.max_call_per_burst && app.client.call_burst > app.client.max_call_per_burst) {
+			//pj_time_val wait = { 0, app.client.call_burst_interval };
+			//unsigned count = 0;
+			//pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
+			pj_thread_sleep(app.client.call_burst_interval);
 			app.client.call_burst = 0;
 		}
 		app.client.call_burst++;
 
+		PJ_LOG(4, (THIS_FILE, "call[%d]", app.client.call_burst));
 		/* Submit one job */
 		if (app.client.method.id == PJSIP_INVITE_METHOD) {
 			status = make_call(&app.client.dst_uri);
