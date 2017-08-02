@@ -1044,14 +1044,23 @@ static void metric_check_period(pj_bool_t end_now) {
 		app.latency_metrics[2].average = 0.0f;
 	}
 }
-static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val *start) {
+
+static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val start) {
 	pj_time_val now;
-	pj_gettimeofday(&now);
+
 	int idx;
 	float current_average, current_q;
-	if (!start)
+	if (!app.latency_metrics_period_duration)
 		return;
-	PJ_TIME_VAL_SUB(now, *start);
+
+	pj_lock_acquire(app.stats_lock);
+	pj_gettimeofday(&now);
+	if(PJ_TIME_VAL_LT(now,start)) {
+		PJ_LOG(1, (THIS_FILE, "metric_update start[%lld.%lld] now[%lld.%lld]", start.sec, start.msec, now.sec, now.msec));
+		pj_lock_release(app.stats_lock);
+		return;
+	}
+	PJ_TIME_VAL_SUB(now, start);
 	int latency = now.msec;
 	if (now.sec)
 		latency += now.sec*1000;
@@ -1062,10 +1071,9 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val *s
 	} else if (status_code == 200) {
 		idx = 2;
 	} else {
+		pj_lock_release(app.stats_lock);
 		return;
 	}
-
-	pj_lock_acquire(app.stats_lock);
 
 	app.latency_metrics[idx].count++;
 	if (app.latency_metrics[idx].count == 1) {
@@ -1117,13 +1125,19 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	if (tsx->method.id != PJSIP_INVITE_METHOD)
 		return;
 	if (tsx->state == 1) {
+		pj_lock_acquire(app.stats_lock);
+		if (tsx->mod_data[14])
+			PJ_LOG(1, (THIS_FILE, "tsx->mod_data[14]"));
 		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
 		pj_gettimeofday(start);
 		tsx->mod_data[14] = start;
+		pj_lock_release(app.stats_lock);
 	} else {
+		pj_lock_acquire(app.stats_lock);
 		pj_time_val *start = tsx->mod_data[14];
 		if (inv->state < 6)
-			metric_update(tsx->status_code, &tsx->method.name, start);
+			metric_update(tsx->status_code, &tsx->method.name, *start);
+		pj_lock_release(app.stats_lock);
 	}
 	return;
 }
@@ -1402,7 +1416,7 @@ static pj_status_t init_options(int argc, char *argv[])
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
-    app.latency_metrics_period_duration = 1;
+    app.latency_metrics_period_duration = 0;
     app.log_level = 3;
 
     /* Parse options */
@@ -1657,6 +1671,7 @@ static int client_thread(void *arg) {
 		 * after we wait for some time.
 		 */
 		for (i=0; outstanding > (int)app.client.job_window && i<1000; ++i) {
+			PJ_LOG(4, (THIS_FILE, "wait_ms[500ms]"));
 			pj_time_val wait = { 0, 500 };
 			unsigned count = 0;
 			pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
@@ -1666,14 +1681,33 @@ static int client_thread(void *arg) {
 			++cycle;
 		}
 
+		pj_time_val start;
+		pj_gettimeofday(&start);
+
 		if (app.client.max_call_per_burst && app.client.call_burst > app.client.max_call_per_burst) {
-			//pj_time_val wait = { 0, app.client.call_burst_interval };
-			//unsigned count = 0;
-			//pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
-			pj_thread_sleep(app.client.call_burst_interval);
+			pj_time_val now;
+			pj_bool_t waiting = PJ_TRUE;
+			unsigned count = 0;
+			while (1) {
+				pj_gettimeofday(&now);
+				PJ_TIME_VAL_SUB(now, start);
+				if (now.sec || now.msec >= app.client.call_burst_interval)
+					break;
+				int wait_ms = app.client.call_burst_interval - now.msec;
+				// PJ_LOG(1, (THIS_FILE, "wait_ms[%d][%d][%d]", wait_ms, app.client.call_burst, count));
+				pj_time_val wait = { 0, wait_ms };
+				unsigned count = 0;
+				pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
+				// pj_thread_sleep(app.client.call_burst_interval);
+				pj_gettimeofday(&now);
+			}
 			app.client.call_burst = 0;
+			// PJ_LOG(1, (THIS_FILE, "done wait_ms[%d]", app.client.call_burst));
+		} else {
+			// PJ_LOG(1, (THIS_FILE, "no wait_ms[%d]", app.client.call_burst));
+		
 		}
-		app.client.call_burst++;
+
 
 		PJ_LOG(4, (THIS_FILE, "call[%d]", app.client.call_burst));
 		/* Submit one job */
@@ -1685,6 +1719,7 @@ static int client_thread(void *arg) {
 			status = submit_job();
 		}
 
+		++app.client.call_burst;
 		++app.client.job_submitted;
 		++cycle;
 
@@ -1897,7 +1932,8 @@ int main(int argc, char *argv[]) {
 	unsigned msec_req, msec_res;
 	unsigned i;
 
-	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	// status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	status = pj_lock_create_recursive_mutex(app.pool, "stats_lock", &app.stats_lock);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
