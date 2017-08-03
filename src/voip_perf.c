@@ -688,12 +688,12 @@ void latency_on_tsx_state(pjsip_transaction *tsx, pjsip_event *event) {
 }
 
 /* The module instance. */
-static pjsip_module msg_latency_mon = 
+static pjsip_module mod_latency = 
 {
     NULL, NULL,				/* prev, next.		*/
     { "mod-latency-mon", 15 },		/* Name.		*/
     -1,					/* Id			*/
-    PJSIP_MOD_PRIORITY_TRANSPORT_LAYER+1,/* Priority	        */
+    PJSIP_MOD_PRIORITY_TRANSPORT_LAYER-1,/* Priority	        */
     NULL,				/* load()		*/
     NULL,				/* start()		*/
     NULL,				/* stop()		*/
@@ -901,6 +901,9 @@ static pj_status_t init_sip() {
     status = pjsip_endpt_register_module( app.sip_endpt, &mod_call_server);
     PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
+	status = pjsip_endpt_register_module(app.sip_endpt, &mod_latency);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	printf("latency module registered id[%d]", mod_latency.id);
     /* Done */
     return PJ_SUCCESS;
 }
@@ -1020,7 +1023,7 @@ static void metric_check_period(pj_bool_t end_now) {
 				app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max,
 				app.latency_metrics[1].count, app.latency_metrics[1].average, app.latency_metrics[1].stdev, app.latency_metrics[1].max,
 				app.latency_metrics[2].count, app.latency_metrics[2].average, app.latency_metrics[2].stdev, app.latency_metrics[2].max);
-		PJ_LOG(1, (THIS_FILE, "metric_update period[%lld]", period.sec));
+		PJ_LOG(1, (THIS_FILE, "metric_period[%lld]", period.sec));
 		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
 	                   app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max));
 		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
@@ -1045,7 +1048,7 @@ static void metric_check_period(pj_bool_t end_now) {
 	}
 }
 
-static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val start) {
+static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t *method, pj_time_val start) {
 	pj_time_val now;
 
 	int idx;
@@ -1053,11 +1056,11 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val st
 	if (!app.latency_metrics_period_duration)
 		return;
 
-	pj_lock_acquire(app.stats_lock);
+	//pj_lock_acquire(app.stats_lock);
 	pj_gettimeofday(&now);
 	if(PJ_TIME_VAL_LT(now,start)) {
-		PJ_LOG(1, (THIS_FILE, "metric_update start[%lld.%lld] now[%lld.%lld]", start.sec, start.msec, now.sec, now.msec));
-		pj_lock_release(app.stats_lock);
+		PJ_LOG(1, (THIS_FILE, "metric_update tsx[%d] [%.*s][%d] start[%lld.%lld] now[%lld.%lld]", tsx->state, method->slen, method->ptr, status_code, start.sec, start.msec, now.sec, now.msec));
+	//	pj_lock_release(app.stats_lock);
 		return;
 	}
 	PJ_TIME_VAL_SUB(now, start);
@@ -1071,7 +1074,7 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val st
 	} else if (status_code == 200) {
 		idx = 2;
 	} else {
-		pj_lock_release(app.stats_lock);
+	//	pj_lock_release(app.stats_lock);
 		return;
 	}
 
@@ -1100,8 +1103,10 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val st
                                now.sec, now.msec, method->slen, method->ptr, status_code,
                                app.latency_metrics[idx].count, latency, app.latency_metrics[idx].average, app.latency_metrics[idx].stdev));
 
+	pj_lock_acquire(app.stats_lock);
 	metric_check_period(PJ_FALSE);
 	pj_lock_release(app.stats_lock);
+
 }
 
 // pjsip_inv_callback inv_cb;
@@ -1121,23 +1126,33 @@ static void metric_update(unsigned status_code, pj_str_t *method, pj_time_val st
     //void (*on_tsx_state_changed)(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e);
 static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e) {
 	
-	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[14]));
+	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[mod_latency.id]));
 	if (tsx->method.id != PJSIP_INVITE_METHOD)
 		return;
 	if (tsx->state == 1) {
 		pj_lock_acquire(app.stats_lock);
-		if (tsx->mod_data[14])
-			PJ_LOG(1, (THIS_FILE, "tsx->mod_data[14]"));
-		pj_time_val *start = (pj_time_val *) pj_pool_alloc(app.pool, sizeof(struct pj_time_val));
+		pjsip_dlg_inc_lock(inv->dlg);
+		if (inv->mod_data[mod_latency.id])
+			PJ_LOG(1, (THIS_FILE, "inv->mod_data[mod_latency.id]"));
+		pj_time_val *start = (pj_time_val *) pj_pool_zalloc(inv->dlg->pool, sizeof(struct pj_time_val));
 		pj_gettimeofday(start);
-		tsx->mod_data[14] = start;
+		inv->mod_data[mod_latency.id] = start;
+		if (start->msec > 1000)
+			PJ_LOG(1, (THIS_FILE, "invalid start[%lld.%lld]", start->sec, start->msec));
+		pjsip_dlg_dec_lock(inv->dlg);
 		pj_lock_release(app.stats_lock);
 	} else {
-		pj_lock_acquire(app.stats_lock);
-		pj_time_val *start = tsx->mod_data[14];
-		if (inv->state < 6)
-			metric_update(tsx->status_code, &tsx->method.name, *start);
-		pj_lock_release(app.stats_lock);
+		if (inv->state < 6) {
+			pj_lock_acquire(app.stats_lock);
+			pjsip_dlg_inc_lock(inv->dlg);
+			pj_time_val *tmp = (pj_time_val *) inv->mod_data[mod_latency.id];
+			if (tmp->msec > 1000)
+				PJ_LOG(1, (THIS_FILE, "invalid tsx_com[%d] tmp[%lld.%lld]", tsx->mod_data[mod_test.id], tmp->sec, tmp->msec));
+			pj_time_val start = *tmp;
+			metric_update(tsx, tsx->status_code, &tsx->method.name, start);
+			pjsip_dlg_dec_lock(inv->dlg);
+			pj_lock_release(app.stats_lock);
+		}
 	}
 	return;
 }
@@ -1911,7 +1926,7 @@ int main(int argc, char *argv[]) {
 	pjsip_endpt_register_module(app.sip_endpt, &msg_logger);
     }
 
-	pjsip_endpt_register_module(app.sip_endpt, &msg_latency_mon);
+
 
     /* Misc infos */
     if (app.client.dst_uri.slen != 0) {
@@ -1932,7 +1947,7 @@ int main(int argc, char *argv[]) {
 	unsigned msec_req, msec_res;
 	unsigned i;
 
-	// status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	//status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
 	status = pj_lock_create_recursive_mutex(app.pool, "stats_lock", &app.stats_lock);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "unable to create lock", status);
