@@ -190,7 +190,7 @@ struct app {
 } app;
 
 static FILE *log_stats_output = NULL;
-static const char *stats_fn = "/tmp/voip_perf_stats.log";
+static const char *stats_fn = "./voip_perf_stats.log";
 
 struct call {
 	pjsip_inv_session *inv;
@@ -1056,11 +1056,9 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
 	if (!app.latency_metrics_period_duration)
 		return;
 
-	//pj_lock_acquire(app.stats_lock);
 	pj_gettimeofday(&now);
 	if(PJ_TIME_VAL_LT(now,start)) {
 		PJ_LOG(1, (THIS_FILE, "metric_update tsx[%d] [%.*s][%d] start[%lld.%lld] now[%lld.%lld]", tsx->state, method->slen, method->ptr, status_code, start.sec, start.msec, now.sec, now.msec));
-	//	pj_lock_release(app.stats_lock);
 		return;
 	}
 	PJ_TIME_VAL_SUB(now, start);
@@ -1074,7 +1072,6 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
 	} else if (status_code == 200) {
 		idx = 2;
 	} else {
-	//	pj_lock_release(app.stats_lock);
 		return;
 	}
 
@@ -1103,10 +1100,7 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
                                now.sec, now.msec, method->slen, method->ptr, status_code,
                                app.latency_metrics[idx].count, latency, app.latency_metrics[idx].average, app.latency_metrics[idx].stdev));
 
-	pj_lock_acquire(app.stats_lock);
 	metric_check_period(PJ_FALSE);
-	pj_lock_release(app.stats_lock);
-
 }
 
 // pjsip_inv_callback inv_cb;
@@ -1131,7 +1125,6 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 		return;
 	if (tsx->state == 1) {
 		pj_lock_acquire(app.stats_lock);
-		pjsip_dlg_inc_lock(inv->dlg);
 		if (inv->mod_data[mod_latency.id])
 			PJ_LOG(1, (THIS_FILE, "inv->mod_data[mod_latency.id]"));
 		pj_time_val *start = (pj_time_val *) pj_pool_zalloc(inv->dlg->pool, sizeof(struct pj_time_val));
@@ -1139,18 +1132,15 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 		inv->mod_data[mod_latency.id] = start;
 		if (start->msec > 1000)
 			PJ_LOG(1, (THIS_FILE, "invalid start[%lld.%lld]", start->sec, start->msec));
-		pjsip_dlg_dec_lock(inv->dlg);
 		pj_lock_release(app.stats_lock);
 	} else {
 		if (inv->state < 6) {
 			pj_lock_acquire(app.stats_lock);
-			pjsip_dlg_inc_lock(inv->dlg);
 			pj_time_val *tmp = (pj_time_val *) inv->mod_data[mod_latency.id];
 			if (tmp->msec > 1000)
 				PJ_LOG(1, (THIS_FILE, "invalid tsx_com[%d] tmp[%lld.%lld]", tsx->mod_data[mod_test.id], tmp->sec, tmp->msec));
 			pj_time_val start = *tmp;
 			metric_update(tsx, tsx->status_code, &tsx->method.name, start);
-			pjsip_dlg_dec_lock(inv->dlg);
 			pj_lock_release(app.stats_lock);
 		}
 	}
@@ -1947,8 +1937,7 @@ int main(int argc, char *argv[]) {
 	unsigned msec_req, msec_res;
 	unsigned i;
 
-	//status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
-	status = pj_lock_create_recursive_mutex(app.pool, "stats_lock", &app.stats_lock);
+	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
