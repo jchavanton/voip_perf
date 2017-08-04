@@ -1177,7 +1177,8 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 
 		/* Simulate call disconnection delay */
 		if (app.client.call_duration) {
-			outbound_call_t *call = pj_pool_zalloc(app.pool, sizeof(struct call));
+			outbound_call_t *call = pj_pool_zalloc(inv->dlg->pool, sizeof(struct call));
+
 			call->inv = inv;
 			pj_time_val delay;
 			call->hangup_timer.id = 1;
@@ -1189,6 +1190,7 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 			pj_time_val_normalize(&delay);
 			PJ_LOG(4, (THIS_FILE, "call_on_state_changed duration[%d] call[%d] ", delay.sec, inv->state));
 			pjsip_endpt_schedule_timer(app.sip_endpt, &call->hangup_timer, &delay);
+
 		} else {
 			status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
 			if (status == PJ_SUCCESS && tdata)
