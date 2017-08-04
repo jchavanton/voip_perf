@@ -974,7 +974,6 @@ static void call_on_media_update( pjsip_inv_session *inv,
  */
 static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 	PJ_UNUSED_ARG(e);
-		PJ_LOG(1, (THIS_FILE, "call_on_state_changed"));
 	/* Bail out if the session has been counted before */
 	if (inv->mod_data[mod_test.id] != NULL)
 		return;
