@@ -234,6 +234,7 @@ static pjsip_module mod_stateless_server =
 
 static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
 	const pj_str_t stateless_user = { "0", 1 };
+	const pj_str_t no_user = { "", 0 };
 	pjsip_uri *uri;
 	pjsip_sip_uri *sip_uri;
 
@@ -245,9 +246,11 @@ static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
 
 	sip_uri = (pjsip_sip_uri*) uri;
 
-	/* Check for matching user part */
-	if (pj_strcmp(&sip_uri->user, &stateless_user)!=0)
+	if (rdata->msg_info.msg->line.req.method.id == PJSIP_REGISTER_METHOD) {
+		/* should add the header expire and contact */
+	} else if (pj_strcmp(&sip_uri->user, &stateless_user)!=0 ) {
 		return PJ_FALSE;
+	}
 
 	// Yes, this is for us.
 
@@ -583,29 +586,18 @@ static pjsip_module mod_responder =
     NULL,			    /* on_tsx_state()		*/
 };
 
-
-static pj_bool_t mod_responder_on_rx_request(pjsip_rx_data *rdata)
-{
-    const pj_str_t reason = pj_str("Not expecting request at this URI");
-
-
-    /*
-     * Respond any requests (except ACK!) with 500.
-     */
-    if (rdata->msg_info.msg->line.req.method.id != PJSIP_ACK_METHOD) {
-	pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 500, &reason,
-				      NULL, NULL);
-    }
-
-    return PJ_TRUE;
+static pj_bool_t mod_responder_on_rx_request(pjsip_rx_data *rdata) {
+	const pj_str_t reason = pj_str("Not expecting request at this URI");
+	// Respond any requests (except ACK!) with 500
+	if (rdata->msg_info.msg->line.req.method.id != PJSIP_ACK_METHOD) {
+		pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 200, &reason, NULL, NULL);
+	}
+	return PJ_TRUE;
 }
-
-
 
 /*****************************************************************************
  * Below is a simple module to log all incoming and outgoing SIP messages
  */
-
 
 /* Notification on incoming messages */
 static pj_bool_t logger_on_rx_msg(pjsip_rx_data *rdata) {
@@ -1119,7 +1111,8 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
      */
     //void (*on_tsx_state_changed)(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e);
 static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e) {
-	
+	if (!app.client.dst_uri.slen)
+		return; // server mode does not reun this code
 	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[mod_latency.id]));
 	if (tsx->method.id != PJSIP_INVITE_METHOD)
 		return;
