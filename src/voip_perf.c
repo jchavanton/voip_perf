@@ -336,8 +336,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata);
 
 /* Module to handle incoming requests callly.
  */
-static pjsip_module mod_call_server =
-{
+static pjsip_module mod_call_server = {
     NULL, NULL,			    /* prev, next.		*/
     { "mod-call-server", 15 },	    /* Name.			*/
     -1,				    /* Id			*/
@@ -353,213 +352,168 @@ static pjsip_module mod_call_server =
     NULL,			    /* on_tsx_state()		*/
 };
 
+static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, int code, pj_bool_t *has_initial) {
+	pjsip_tx_data *tdata;
+	pj_status_t status;
 
-static pj_status_t send_response(pjsip_inv_session *inv, 
-				 pjsip_rx_data *rdata,
-				 int code,
-				 pj_bool_t *has_initial)
-{
-    pjsip_tx_data *tdata;
-    pj_status_t status;
-
-
-    if (*has_initial) {
-	if (!inv->invite_tsx)
+	if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
 		return PJ_FALSE;
-	status = pjsip_inv_answer(inv, code, NULL, NULL, &tdata);
-    } else {
-	status = pjsip_inv_initial_answer(inv, rdata, code, 
-					  NULL, NULL, &tdata);
-    }
-
-    if (status != PJ_SUCCESS) {
+	}
 	if (*has_initial) {
-	    status = pjsip_inv_answer(inv, PJSIP_SC_NOT_ACCEPTABLE, 
-				      NULL, NULL, &tdata);
+		if (!inv->invite_tsx)
+			return PJ_FALSE;
+		status = pjsip_inv_answer(inv, code, NULL, NULL, &tdata);
 	} else {
-	    status = pjsip_inv_initial_answer(inv, rdata, 
-					      PJSIP_SC_NOT_ACCEPTABLE,
-					      NULL, NULL, &tdata);
+		status = pjsip_inv_initial_answer(inv, rdata, code, NULL, NULL, &tdata);
 	}
 
-	if (status == PJ_SUCCESS) {
-	    *has_initial = PJ_TRUE;
-	    pjsip_inv_send_msg(inv, tdata); 
-	} else {
-	    pjsip_inv_terminate(inv, 500, PJ_FALSE);
-	    return -1;
-	}
-    } else {
-	*has_initial = PJ_TRUE;
-
-	status = pjsip_inv_send_msg(inv, tdata); 
 	if (status != PJ_SUCCESS) {
-	    pjsip_tx_data_dec_ref(tdata);
-	    return status;
+		if (*has_initial) {
+			status = pjsip_inv_answer(inv, PJSIP_SC_NOT_ACCEPTABLE, NULL, NULL, &tdata);
+		} else {
+			status = pjsip_inv_initial_answer(inv, rdata, PJSIP_SC_NOT_ACCEPTABLE, NULL, NULL, &tdata);
+		}
+		if (status == PJ_SUCCESS) {
+			*has_initial = PJ_TRUE;
+			pjsip_inv_send_msg(inv, tdata);
+		} else {
+			pjsip_inv_terminate(inv, 500, PJ_FALSE);
+			return -1;
+		}
+	} else {
+		*has_initial = PJ_TRUE;
+		status = pjsip_inv_send_msg(inv, tdata); 
+		if (status != PJ_SUCCESS) {
+			pjsip_tx_data_dec_ref(tdata);
+			return status;
+		}
 	}
-    }
-
-    return status;
+	return status;
 }
 
-static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry)
-{
-    struct call *call = entry->user_data;
-    pj_bool_t has_initial = PJ_TRUE;
-
-    PJ_UNUSED_ARG(h);
-
-    entry->id = 0;
-    send_response(call->inv, NULL, 200, &has_initial);
+static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
+	struct call *call = entry->user_data;
+	pj_bool_t has_initial = PJ_TRUE;
+	PJ_UNUSED_ARG(h);
+	entry->id = 0;
+	send_response(call->inv, NULL, 200, &has_initial);
 }
 
-static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata)
-{
-    const pj_str_t call_user = { "2", 1 };
-    pjsip_uri *uri;
-    pjsip_sip_uri *sip_uri;
-    struct call *call;
-    pjsip_dialog *dlg;
-    pjmedia_sdp_session *sdp;
-    pjsip_tx_data *tdata;
-    pj_bool_t has_initial = PJ_FALSE;
-    pj_status_t status;
+static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
+	const pj_str_t call_user = { "2", 1 };
+	pjsip_uri *uri;
+	pjsip_sip_uri *sip_uri;
+	struct call *call;
+	pjsip_dialog *dlg;
+	pjmedia_sdp_session *sdp;
+	pjsip_tx_data *tdata;
+	pj_bool_t has_initial = PJ_FALSE;
+	pj_status_t status;
 
-    uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
+	uri = pjsip_uri_get_uri(rdata->msg_info.msg->line.req.uri);
 
-    /* Only want to receive SIP/SIPS scheme */
-    if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
-	return PJ_FALSE;
+	/* Only want to receive SIP/SIPS scheme */
+	if (!PJSIP_URI_SCHEME_IS_SIP(uri) && !PJSIP_URI_SCHEME_IS_SIPS(uri))
+		return PJ_FALSE;
 
-    sip_uri = (pjsip_sip_uri*) uri;
+	sip_uri = (pjsip_sip_uri*) uri;
 
-    /* Only want to handle INVITE requests. */
-    if (rdata->msg_info.msg->line.req.method.id != PJSIP_INVITE_METHOD) {
-	return PJ_FALSE;
-    }
+	/* Only want to handle INVITE requests. */
+	if (rdata->msg_info.msg->line.req.method.id != PJSIP_INVITE_METHOD) {
+		return PJ_FALSE;
+	}
 
+	// Check for matching user part. Incoming requests will be handled 
+	// call-statefully if:
+	// - user part is "2", or
+	// - user part is not "0" nor "1" and method is INVITE.
+	if (pj_strcmp(&sip_uri->user, &call_user) == 0 || sip_uri->user.slen != 1 ||
+		(*sip_uri->user.ptr != '0' && *sip_uri->user.ptr != '1')) {
+	} else {
+		return PJ_FALSE;
+	}
 
-    /* Check for matching user part. Incoming requests will be handled 
-     * call-statefully if:
-     *	- user part is "2", or
-     *  - user part is not "0" nor "1" and method is INVITE.
-     */
-    if (pj_strcmp(&sip_uri->user, &call_user) == 0 ||
-	sip_uri->user.slen != 1 ||
-	(*sip_uri->user.ptr != '0' && *sip_uri->user.ptr != '1'))
-    {
-	/* Match */
+	// Verify that we can handle the request.
+	if (app.real_sdp) {
+		unsigned options = 0;
+		status = pjsip_inv_verify_request(rdata, &options, NULL, NULL, app.sip_endpt, &tdata);
+		if (status != PJ_SUCCESS) {
+		// No we can't handle the incoming INVITE request.
+			if (tdata) {
+				pjsip_response_addr res_addr;
+				pjsip_get_response_addr(tdata->pool, rdata, &res_addr);
+				pjsip_endpt_send_response(app.sip_endpt, &res_addr, tdata, NULL, NULL);
+			} else {
+				// Respond with 500 (Internal Server Error)
+				pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 500, NULL, NULL, NULL);
+			}
+		return PJ_TRUE;
+		}
+	}
 
-    } else {
-	return PJ_FALSE;
-    }
-
-
-    /* Verify that we can handle the request. */
-    if (app.real_sdp) {
-	unsigned options = 0;
-	status = pjsip_inv_verify_request(rdata, &options, NULL, NULL,
-					  app.sip_endpt, &tdata);
+	/* Create UAS dialog */
+	status = pjsip_dlg_create_uas_and_inc_lock( pjsip_ua_instance(), rdata, &app.local_contact, &dlg);
 	if (status != PJ_SUCCESS) {
+		const pj_str_t reason = pj_str("Unable to create dialog");
+		pjsip_endpt_respond_stateless( app.sip_endpt, rdata,500, &reason, NULL, NULL);
+		return PJ_TRUE;
+	}
 
-	    /*
-	     * No we can't handle the incoming INVITE request.
-	     */
+	/* Alloc call structure. */
+	call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
 
-	    if (tdata) {
-		pjsip_response_addr res_addr;
+	/* Create SDP from PJMEDIA */
+	if (app.real_sdp) {
+		status = pjmedia_endpt_create_sdp(app.med_endpt, rdata->tp_info.pool, app.skinfo_cnt, app.skinfo, &sdp);
+	} else {
+		sdp = app.dummy_sdp;
+	}
 
-		pjsip_get_response_addr(tdata->pool, rdata, &res_addr);
-		pjsip_endpt_send_response(app.sip_endpt, &res_addr, tdata, 
-					  NULL, NULL);
+	/* Create UAS invite session */
+	status = pjsip_inv_create_uas( dlg, rdata, sdp, 0, &call->inv);
+	if (status != PJ_SUCCESS) {
+		pjsip_dlg_create_response(dlg, rdata, 500, NULL, &tdata);
+		pjsip_dlg_send_response(dlg, pjsip_rdata_get_tsx(rdata), tdata);
+		pjsip_dlg_dec_lock(dlg);
+		return PJ_TRUE;
+	}
 
-	    } else {
-
-		/* Respond with 500 (Internal Server Error) */
-		pjsip_endpt_respond_stateless(app.sip_endpt, rdata, 500, NULL,
-					      NULL, NULL);
-	    }
-
-	    return PJ_TRUE;
-	} 
-    }
-
-    /* Create UAS dialog */
-    status = pjsip_dlg_create_uas_and_inc_lock( pjsip_ua_instance(), rdata,
-						&app.local_contact, &dlg);
-    if (status != PJ_SUCCESS) {
-	const pj_str_t reason = pj_str("Unable to create dialog");
-	pjsip_endpt_respond_stateless( app.sip_endpt, rdata, 
-				       500, &reason,
-				       NULL, NULL);
-	return PJ_TRUE;
-    }
-
-    /* Alloc call structure. */
-    call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
-
-    /* Create SDP from PJMEDIA */
-    if (app.real_sdp) {
-	status = pjmedia_endpt_create_sdp(app.med_endpt, rdata->tp_info.pool, 
-					  app.skinfo_cnt, app.skinfo, 
-					  &sdp);
-    } else {
-	sdp = app.dummy_sdp;
-    }
-
-    /* Create UAS invite session */
-    status = pjsip_inv_create_uas( dlg, rdata, sdp, 0, &call->inv);
-    if (status != PJ_SUCCESS) {
-	pjsip_dlg_create_response(dlg, rdata, 500, NULL, &tdata);
-	pjsip_dlg_send_response(dlg, pjsip_rdata_get_tsx(rdata), tdata);
+	/* Invite session has been created, decrement & release dialog lock. */
 	pjsip_dlg_dec_lock(dlg);
+
+	/* Send 100/Trying if needed */
+	if (app.server.send_trying) {
+		status = send_response(call->inv, rdata, 100, &has_initial);
+		if (status != PJ_SUCCESS)
+		return PJ_TRUE;
+	}
+
+	/* Send 180/Ringing if needed */
+	if (app.server.send_ringing) {
+		status = send_response(call->inv, rdata, 180, &has_initial);
+		if (status != PJ_SUCCESS)
+			return PJ_TRUE;
+	}
+
+	/* Simulate call processing delay */
+	if (app.server.delay) {
+		pj_time_val delay;
+		call->ans_timer.id = 1;
+		call->ans_timer.user_data = call;
+		call->ans_timer.cb = &answer_timer_cb;
+		delay.sec = 0;
+		delay.msec = app.server.delay;
+		pj_time_val_normalize(&delay);
+		pjsip_endpt_schedule_timer(app.sip_endpt, &call->ans_timer, &delay);
+	} else {
+		// Send the 200 response immediately
+		status = send_response(call->inv, rdata, 200, &has_initial);
+		PJ_ASSERT_ON_FAIL(status == PJ_SUCCESS, return PJ_TRUE);
+	}
+
+	app.server.cur_state.call_cnt++;
 	return PJ_TRUE;
-    }
-    
-    /* Invite session has been created, decrement & release dialog lock. */
-    pjsip_dlg_dec_lock(dlg);
-
-    /* Send 100/Trying if needed */
-    if (app.server.send_trying) {
-	status = send_response(call->inv, rdata, 100, &has_initial);
-	if (status != PJ_SUCCESS)
-	    return PJ_TRUE;
-    }
-
-    /* Send 180/Ringing if needed */
-    if (app.server.send_ringing) {
-	status = send_response(call->inv, rdata, 180, &has_initial);
-	if (status != PJ_SUCCESS)
-	    return PJ_TRUE;
-    }
-
-    /* Simulate call processing delay */
-    if (app.server.delay) {
-	pj_time_val delay;
-
-	call->ans_timer.id = 1;
-	call->ans_timer.user_data = call;
-	call->ans_timer.cb = &answer_timer_cb;
-	
-	delay.sec = 0;
-	delay.msec = app.server.delay;
-	pj_time_val_normalize(&delay);
-
-	pjsip_endpt_schedule_timer(app.sip_endpt, &call->ans_timer, &delay);
-
-    } else {
-	/* Send the 200 response immediately . */  
-	status = send_response(call->inv, rdata, 200, &has_initial);
-	PJ_ASSERT_ON_FAIL(status == PJ_SUCCESS, return PJ_TRUE);
-    }
-
-    /* Done */
-    app.server.cur_state.call_cnt++;
-
-    return PJ_TRUE;
 }
-
-
 
 /**************************************************************************
  * Default handler when incoming request is not handled by any other
