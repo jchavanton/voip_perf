@@ -135,6 +135,15 @@ struct srv_state {
 	unsigned call_cnt;
 };
 
+typedef struct cps_period {
+	pj_time_val start;      // start ts of the period
+	pj_time_val last_sleep; // ms when we last waited, to double check if we where interupted
+	int call_count_ms;      // call count in the current ms
+	int call_count;         // call count in the current period
+	float cps;              // target cps, fixed
+	float cpms;             // current target call per ms, adjusted frequently
+} cps_period_t;
+
 struct app {
 	pj_caching_pool cp;
 	pj_pool_t *pool;
@@ -162,10 +171,7 @@ struct app {
 		unsigned job_count, job_submitted, job_finished, job_window;
 		unsigned stat_max_window;
 		unsigned call_duration;
-		unsigned call_burst;
-		unsigned max_call_per_burst;
-		unsigned call_burst_interval;
-		pj_time_val burst_start;
+		unsigned cps;
 		pj_time_val first_request;
 		pj_time_val requests_sent;
 		pj_time_val last_completion;
@@ -186,7 +192,8 @@ struct app {
 	int latency_metrics_period_duration;
 
 	pj_lock_t *stats_lock;
-
+	pj_lock_t *cps_lock;
+	cps_period_t cps_period;
 } app;
 
 static FILE *log_stats_output = NULL;
@@ -1295,8 +1302,7 @@ static void usage(void)
 	"                           [default: stateful]\n"
 	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
 	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
-	"   --call-per-burst=COUNT, -C     Set maximum amount of call per burst period [default: no limit]\n"
-	"   --call-burst-interval-ms=MSEC, -B     Set duration of a burst period [default: 1 ms]\n"
+	"   --call-per-second=COUNT, -C     Set maximum amount of call per second [default: 100]\n"
 	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
 	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
@@ -1346,8 +1352,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
 	{ "interval",	    1, 0, 'i' },
-	{ "call-per-burst",	    1, 0, 'C' },
-	{ "call-burst-interval-ms",	    1, 0, 'B' },
+	{ "call-per-second",	    1, 0, 'C' },
 	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 	{ "verbose",        0, 0, 'v' },
 	{ "use-tcp",	    0, 0, 'T' },
@@ -1365,8 +1370,7 @@ static pj_status_t init_options(int argc, char *argv[])
     app.local_port = 5060;
     app.thread_count = 1;
     app.client.job_count = DEFAULT_COUNT;
-    app.client.max_call_per_burst = 0;
-    app.client.call_burst_interval = 1;
+    app.client.cps = 100;
     app.client.method = *pjsip_get_options_method();
     app.client.job_window = c = JOB_WINDOW;
     app.client.timeout = 60;
@@ -1434,16 +1438,9 @@ static pj_status_t init_options(int argc, char *argv[])
 		}
 		break;
 	case 'C':
-		app.client.max_call_per_burst = my_atoi(pj_optarg);
-		if (app.client.max_call_per_burst < 1) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --call-per-burst %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'B':
-		app.client.call_burst_interval = my_atoi(pj_optarg);
-		if (app.client.call_burst_interval < 1) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --call-burst-interval %s", pj_optarg));
+		app.client.cps = my_atoi(pj_optarg);
+		if (app.client.cps < 1 || app.client.cps >= 10000) {
+			PJ_LOG(3,(THIS_FILE, "Invalid --call-per-second %s", pj_optarg));
 			return -1;
 		}
 		break;
@@ -1638,32 +1635,54 @@ static int client_thread(void *arg) {
 		pj_time_val start;
 		pj_gettimeofday(&start);
 
-		if (app.client.max_call_per_burst && app.client.call_burst > app.client.max_call_per_burst) {
-			pj_time_val now;
-			pj_bool_t waiting = PJ_TRUE;
-			unsigned count = 0;
-			while (1) {
-				pj_gettimeofday(&now);
-				PJ_TIME_VAL_SUB(now, start);
-				if (now.sec || now.msec >= app.client.call_burst_interval)
-					break;
-				int wait_ms = app.client.call_burst_interval - now.msec;
-				// PJ_LOG(1, (THIS_FILE, "wait_ms[%d][%d][%d]", wait_ms, app.client.call_burst, count));
-				pj_time_val wait = { 0, wait_ms };
-				unsigned count = 0;
-				pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
-				// pj_thread_sleep(app.client.call_burst_interval);
-				pj_gettimeofday(&now);
-			}
-			app.client.call_burst = 0;
-			// PJ_LOG(1, (THIS_FILE, "done wait_ms[%d]", app.client.call_burst));
-		} else {
-			// PJ_LOG(1, (THIS_FILE, "no wait_ms[%d]", app.client.call_burst));
-		
+		// cps_period.calls_count_period
+		// INIT
+		if (app.cps_period.call_count == 0) {
+			pj_lock_acquire(app.cps_lock);
+			pj_gettimeofday(&app.cps_period.start);
+			app.cps_period.cpms = app.client.cps / 1000;
+			if (app.cps_period.cpms < 1)
+				app.cps_period.cpms = 1;
+			pj_lock_release(app.cps_lock);
 		}
 
+		while (app.cps_period.call_count_ms >= app.cps_period.cpms) {
+			pj_time_val wait = { 0, 1 };
+			pj_time_val now;
+			unsigned count = 0;
+			pj_gettimeofday(&now);
 
-		PJ_LOG(4, (THIS_FILE, "call[%d]", app.client.call_burst));
+			pj_lock_acquire(app.cps_lock);
+			if (now.msec != app.cps_period.last_sleep.msec) {
+				app.cps_period.last_sleep.msec = now.msec;
+				app.cps_period.call_count_ms = 0;
+			}
+			pj_lock_release(app.cps_lock);
+
+			pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
+			// CHECK CPS PERIOD
+			pj_gettimeofday(&now);
+			pj_lock_acquire(app.cps_lock);
+			PJ_TIME_VAL_SUB(now, app.cps_period.start);
+			if (now.sec >= 1) {
+				pj_gettimeofday(&app.cps_period.start);
+				PJ_LOG(1, (THIS_FILE, "cps_period.calls_count_period[%d] duration[%d.%d]", app.cps_period.call_count, (int)now.sec, (int)now.msec));
+				app.cps_period.call_count = 0;
+			} else {
+				// CHECK CPS THROTTLE
+				int cps_remaining = app.client.cps - app.cps_period.call_count;
+				int cps_period_remaining_ms = 1000 - now.msec;	
+				app.cps_period.cpms = cps_remaining/(float)cps_period_remaining_ms;
+				if (app.cps_period.cpms < 0)
+					app.cps_period.cpms = 0;
+				PJ_LOG(4, (THIS_FILE, "cps_period.calls_count_period[%d/%d] elapsed[%dms] new_cpms[%.2f] [%d/%d]",
+								app.cps_period.call_count, app.client.cps,
+                                                                (int)now.msec,
+                                                                app.cps_period.cpms, cps_remaining, cps_period_remaining_ms));
+			}
+			pj_lock_release(app.cps_lock);
+		}
+		PJ_LOG(4, (THIS_FILE, "cps_period.calls_count_period[%d][%d.%d] cpms[%.2f]", app.cps_period.call_count, (int)app.cps_period.start.sec, (int)app.cps_period.start.msec, app.cps_period.cpms));
 		/* Submit one job */
 		if (app.client.method.id == PJSIP_INVITE_METHOD) {
 			status = make_call(&app.client.dst_uri);
@@ -1672,8 +1691,8 @@ static int client_thread(void *arg) {
 		} else {
 			status = submit_job();
 		}
-
-		++app.client.call_burst;
+		++app.cps_period.call_count_ms;
+		++app.cps_period.call_count;
 		++app.client.job_submitted;
 		++cycle;
 
@@ -1887,6 +1906,10 @@ int main(int argc, char *argv[]) {
 	unsigned i;
 
 	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+	if (status != PJ_SUCCESS) {
+		app_perror(THIS_FILE, "unable to create lock", status);
+	}
+	status = pj_lock_create_simple_mutex(app.pool, "cps_lock", &app.cps_lock);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
