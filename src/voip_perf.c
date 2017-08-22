@@ -255,6 +255,8 @@ static pj_bool_t mod_stateless_on_rx_request(pjsip_rx_data *rdata) {
 
 	if (rdata->msg_info.msg->line.req.method.id == PJSIP_REGISTER_METHOD) {
 		/* should add the header expire and contact */
+	} else if (rdata->msg_info.msg->line.req.method.id == PJSIP_OPTIONS_METHOD) {
+		/* reply statelessly to OPTIONS */
 	} else if (pj_strcmp(&sip_uri->user, &stateless_user)!=0 ) {
 		return PJ_FALSE;
 	}
