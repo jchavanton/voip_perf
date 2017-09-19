@@ -66,7 +66,7 @@
 #include <pjlib.h>
 #include <stdio.h>
 
-
+#include "custom_headers.h"
 
 // random
 #include <time.h>
@@ -1221,19 +1221,17 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		return status;
 	}
 
-	// inv->dlg->inv_hdr.next
-	{
-	    //struct pjsip_hdr hdr_list;
-	    pjsip_generic_string_hdr *h;
-	    pj_str_t hname, hvalue;
-	    hname = pj_str("X-My-Tech-Prefix");
-	    hvalue = pj_str("33663170");
-	    h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
-	    //pj_list_init(&hdr_list);
-	    //pj_list_push_back(&hdr_list, h);
-	    pj_list_push_back(&dlg->inv_hdr, h);
-	    // void pjsip_msg_add_hdr(pjsip_msg *msg, pjsip_hdr *hdr);
-	    // pjsip_msg_add_hdr(msg, &hdr_list);
+	int custom_headers_count = (int)(sizeof(HDR)/sizeof(HDR[0])/2);
+	int x, idx = 0;
+	for (int x=0; x<custom_headers_count ; x++) {
+		pjsip_generic_string_hdr *h;
+		pj_str_t hname, hvalue;
+		hname = pj_str((char *)HDR[idx]);
+		idx++;
+		hvalue = pj_str((char *)HDR[idx]);
+		idx++;
+		h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
+		pj_list_push_back(&dlg->inv_hdr, h);
 	}
 
 	/* Create initial INVITE request.
