@@ -1079,7 +1079,7 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	PJ_LOG(4, (THIS_FILE, "call_on_tsx_state_changed call[%d] transaction[%d] module[%s|%d|%p]", inv->state, tsx->state, tsx->tsx_user->name, tsx->tsx_user->id, tsx->mod_data[mod_latency.id]));
 	if (tsx->method.id != PJSIP_INVITE_METHOD)
 		return;
-	if (tsx->state == 1) {
+	if (tsx->state == PJSIP_TSX_STATE_CALLING) {
 		pj_lock_acquire(app.stats_lock);
 		if (inv->mod_data[mod_latency.id])
 			PJ_LOG(1, (THIS_FILE, "inv->mod_data[mod_latency.id]"));
@@ -1093,6 +1093,12 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 		if (inv->state < 6) {
 			pj_lock_acquire(app.stats_lock);
 			pj_time_val *tmp = (pj_time_val *) inv->mod_data[mod_latency.id];
+			if (!tmp) {
+				PJ_LOG(4, (THIS_FILE, "tx_state[%d] inv_state[%d] no data for the transaction.",
+							tsx->state, inv->state));
+				pj_lock_release(app.stats_lock);
+				return;
+			}
 			if (tmp->msec > 1000)
 				PJ_LOG(1, (THIS_FILE, "invalid tsx_com[%d] tmp[%lld.%lld]", tsx->mod_data[mod_test.id], tmp->sec, tmp->msec));
 			pj_time_val start = *tmp;
@@ -1425,7 +1431,7 @@ static pj_status_t init_options(int argc, char *argv[])
 		break;
 	case 't':
 		app.client.timeout = my_atoi(pj_optarg);
-		if (app.client.timeout > 3600) {
+		if (app.client.timeout > 86400) {
 			PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
 			return -1;
 		}
@@ -1703,7 +1709,7 @@ static int client_thread(void *arg) {
 		if (cycle - last_cycle >= 5000) {
 			pj_gettimeofday(&now);
 			if (PJ_TIME_VAL_GTE(now, end_time)) {
-				PJ_LOG(1, (THIS_FILE, "timeout !?"));
+				PJ_LOG(1, (THIS_FILE, "scenario execution took too long, max was[%dseconds] you can increase the param: --timeout=SEC, -t", app.client.timeout));
 				break;
 			}
 			last_cycle = cycle;
