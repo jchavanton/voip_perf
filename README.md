@@ -65,3 +65,29 @@ You can add custom headers in this file
 ```
 include/custom_headers.h
 ```
+
+### Example : starting a server
+
+```
+./voip_perf  -p 5072 --trying --ringing --thread-count=4 -d 10000
+
+# -p | server listening port
+# --ringing | when receiving invite 183 will be sent 
+# --trying  | when receiving invite 100 trying will be send
+# -d 1000 | ringing delay 1 second
+```
+
+### Example : starting a client
+
+This will send one INVITE to a randomise number starting with +1206?????? to server 1.1.1.1
+
+```
+./voip_perf -m INVITE -p 5072 sip:+1206???????@1.1.1.1 --count=1 --duration=5 --call-per-second=500 --window=100000 --thread-count=1 -i 1 -t 7200
+
+# --count=1    | send on oly one call, this is just to make sure you do not strom a server by mistake, increase it
+# --duration=5 | send BYE after 5 seconds
+# --call-per-second=500  | send 500 cps
+# --window=1000000 | the maximum amount of active requests, in case something is lagging
+# --thread-count=1 | how many thread to use
+# -t 7200 | total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
+```
