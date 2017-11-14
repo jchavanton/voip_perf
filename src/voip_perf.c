@@ -167,6 +167,7 @@ struct app {
 	struct {
 		pjsip_method method;
 		pj_str_t dst_uri;
+		pj_str_t callerid;
 		pj_bool_t stateless;
 		unsigned timeout, interval;
 		unsigned job_count, job_submitted, job_finished, job_window;
@@ -795,18 +796,31 @@ static pj_status_t init_sip() {
 	    return status;
 	}
 
-	app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
-	app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr, 
-				    	     "<sip:voip_perf@%.*s:%d;transport=%s>",
-					     (int)app.local_addr.slen,
-					     app.local_addr.ptr,
-					     app.local_port,
-					     transport_type);
-
+	PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
+	if (app.client.callerid.ptr) {
+		PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
+		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
+		app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr,
+					"<sip:%.*s@%.*s:%d;transport=%s>",
+					(int)app.client.callerid.slen,
+					app.client.callerid.ptr,
+					(int)app.local_addr.slen,
+					app.local_addr.ptr,
+					app.local_port,
+					transport_type);
+	} else {
+		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
+		app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr,
+					"<sip:voip_perf@%.*s:%d;transport=%s>",
+					(int)app.local_addr.slen,
+					app.local_addr.ptr,
+					app.local_port,
+					transport_type);
+	}
 	app.local_contact = app.local_uri;
     }
 
-    /* 
+    /*
      * Init transaction layer.
      * This will create/initialize transaction hash tables etc.
      */
@@ -859,7 +873,7 @@ static pj_status_t init_sip() {
 
 	status = pjsip_endpt_register_module(app.sip_endpt, &mod_latency);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
-	printf("latency module registered id[%d]", mod_latency.id);
+	PJ_LOG(3,(THIS_FILE, "latency module registered id[%d]", mod_latency.id));
     /* Done */
     return PJ_SUCCESS;
 }
@@ -1181,9 +1195,10 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	pj_status_t status;
 
 	// replace ? with random digits
-	pj_str_t target_uri; // T.O.D.O. NEED TO FREE
+	pj_str_t target_uri; // T.O.D.O. NEED TO FREE ?
 	pj_strdup(app.pool, &target_uri, dst_uri);
 
+	// random calledid
 	char digit[11] = "0123456789";
 	char c[2] = "?";
 	char *ret;
@@ -1193,12 +1208,19 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 			ret[0] = digit[rand()%9];
 		}
 	} while (ret);
-	//	PJ_LOG(1, (THIS_FILE, "make_call dest[%s]", target_uri.ptr ));
-	//
+	// random callerid
+	pj_str_t local_uri;
+	pj_strdup(app.pool, &local_uri, (const pj_str_t *) &app.local_uri);
+	do {
+		ret = strstr(local_uri.ptr, c);
+			if (ret) {
+			ret[0] = digit[rand()%9];
+		}
+	} while (ret);
 
 	/* Create UAC dialog */
 	status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
-				   &app.local_uri,	/* local URI	    */
+				   &local_uri,		/* local URI	    */
 				   &app.local_contact,	/* local Contact    */
 				   &target_uri,		/* remote URI	    */
 				   &target_uri,		/* remote target    */
@@ -1303,6 +1325,7 @@ static void usage(void)
 	"Client options:\n"
 	"   --method=METHOD, -m     Set test method (set to INVITE for call benchmark)\n"
         "                           [default: OPTIONS]\n"
+	"   --caller-id, -r         Set the caller-id '?' will be replaced by random digits from 0-9\n"
 	"   --count=N, -c           Set total number of requests to initiate\n"
 	"                           [default=%d]\n"
 	"   --stateless, -s         Set to operate in stateless mode\n"
@@ -1352,6 +1375,7 @@ static pj_status_t init_options(int argc, char *argv[])
     enum { OPT_THREAD_COUNT = 1, OPT_REAL_SDP, OPT_TRYING, OPT_RINGING };
     struct pj_getopt_option long_options[] = {
 	{ "local-port",	    1, 0, 'p' },
+	{ "caller-id",	    1, 0, 'r' },
 	{ "count",	    1, 0, 'c' },
 	{ "thread-count",   1, 0, OPT_THREAD_COUNT },
 	{ "method",	    1, 0, 'm' },
@@ -1386,8 +1410,8 @@ static pj_status_t init_options(int argc, char *argv[])
 
     /* Parse options */
     pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:c:m:t:w:d:D:C:i:hsv", 
-			    long_options, &option_index))!=-1) 
+    while((c=pj_getopt_long(argc,argv, "p:r:c:m:t:w:d:D:C:i:hsv",
+			    long_options, &option_index))!=-1)
     {
 	switch (c) {
 	case 'p':
@@ -1400,7 +1424,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	case 'c':
 		app.client.job_count = my_atoi(pj_optarg);
 		if (app.client.job_count > pjsip_cfg()->tsx.max_count)
-			PJ_LOG(3,(THIS_FILE, 
+			PJ_LOG(3,(THIS_FILE,
 			  "Warning: --count value (%d) exceeds maximum "
 			  "transaction count (%d)", app.client.job_count,
 			  pjsip_cfg()->tsx.max_count));
@@ -1423,6 +1447,10 @@ static pj_status_t init_options(int argc, char *argv[])
 		return -1;
 	case 's':
 		app.client.stateless = PJ_TRUE;
+		break;
+	case 'r':
+		app.client.callerid = pj_str((char*)pj_optarg);
+		PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
 		break;
 	case OPT_REAL_SDP:
 		app.real_sdp = 1;
