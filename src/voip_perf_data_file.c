@@ -40,7 +40,7 @@ char* df_get_line(input_file_t *in, input_file_record_t *rec) {
 		while (idx<l.slen) {
 			if (l.ptr[idx] == ',' || l.ptr[idx] == '\n') {
 				rec->callerid.ptr=&l.ptr[tmp];
-				rec->callerid.slen=idx-tmp-1;
+				rec->callerid.slen=idx-tmp;
 		//printf("calledid[%.*s]", (int)rec->callerid.slen, rec->callerid.ptr);
 				break;
 			}
