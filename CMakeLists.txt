@@ -10,6 +10,7 @@ set(SRC_DIR "${ROOT_DIR}/src")
 
 set(PERF_SRCS
 	${SRC_DIR}/voip_perf.c
+	${SRC_DIR}/voip_perf_data_file.c
 )
 
 include_directories(${ROOT_DIR}/pjsua/pjmedia/include)
@@ -17,6 +18,7 @@ include_directories(${ROOT_DIR}/pjsua/pjsip/include)
 include_directories(${ROOT_DIR}/pjsua/pjlib/include)
 include_directories(${ROOT_DIR}/pjsua/pjnath/include)
 include_directories(${ROOT_DIR}/pjsua/pjlib-util/include)
+include_directories(${ROOT_DIR}/pjsua/pjlib/include)
 
 include_directories(${ROOT_DIR}/include)
 

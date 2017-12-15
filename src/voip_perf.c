@@ -68,6 +68,7 @@
 #include <stdio.h>
 
 #include "custom_headers.h"
+#include "data_file.h"
 
 // random
 #include <time.h>
@@ -151,6 +152,7 @@ struct app {
 	pj_bool_t use_tcp;
 	pj_str_t local_addr;
 	int local_port;
+	const char *transport_type;
 	pjsip_endpoint *sip_endpt;
 	pjmedia_endpt *med_endpt;
 	pj_str_t local_uri;
@@ -168,6 +170,7 @@ struct app {
 		pjsip_method method;
 		pj_str_t dst_uri;
 		pj_str_t callerid;
+		input_file_t input_file;
 		pj_bool_t stateless;
 		unsigned timeout, interval;
 		unsigned job_count, job_submitted, job_finished, job_window;
@@ -747,7 +750,6 @@ static pj_status_t init_sip() {
     {
 	pj_sockaddr_in addr;
 	pjsip_host_port addrname;
-	const char *transport_type = NULL;
 
 	pj_bzero(&addr, sizeof(addr));
 	addr.sin_family = pj_AF_INET();
@@ -767,8 +769,8 @@ static pj_status_t init_sip() {
 	} else if (app.use_tcp) {
 	    pj_sockaddr_in local_addr;
 	    pjsip_tpfactory *tpfactory;
-	    
-	    transport_type = "tcp";
+
+	    app.transport_type = "tcp";
 	    pj_sockaddr_in_init(&local_addr, 0, (pj_uint16_t)app.local_port);
 	    status = pjsip_tcp_transport_start(app.sip_endpt, &local_addr,
 					       app.thread_count, &tpfactory);
@@ -780,8 +782,7 @@ static pj_status_t init_sip() {
 	} else {
 	    pjsip_transport *tp;
 
-	//    pjsip_str ip = {"127.0.1.1",9};
-	    transport_type = "udp";
+	    app.transport_type = "udp";
 	    status = pjsip_udp_transport_start(app.sip_endpt, &addr, 
 					       (app.local_addr.slen ? &addrname:NULL),
 					       app.thread_count, &tp);
@@ -796,7 +797,6 @@ static pj_status_t init_sip() {
 	    return status;
 	}
 
-	PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
 	if (app.client.callerid.ptr) {
 		PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
 		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
@@ -807,7 +807,7 @@ static pj_status_t init_sip() {
 					(int)app.local_addr.slen,
 					app.local_addr.ptr,
 					app.local_port,
-					transport_type);
+					app.transport_type);
 	} else {
 		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
 		app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr,
@@ -815,7 +815,7 @@ static pj_status_t init_sip() {
 					(int)app.local_addr.slen,
 					app.local_addr.ptr,
 					app.local_port,
-					transport_type);
+					app.transport_type);
 	}
 	app.local_contact = app.local_uri;
     }
@@ -1195,29 +1195,61 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	pj_status_t status;
 
 	// replace ? with random digits
-	pj_str_t target_uri; // T.O.D.O. NEED TO FREE ?
-	pj_strdup(app.pool, &target_uri, dst_uri);
+	pj_str_t target_uri = {NULL,0};
+	pj_str_t local_uri = {NULL,0};
 
-	// random calledid
+	if (app.client.input_file.fn.ptr) {
+		input_file_record_t record;
+		char *l = df_get_line(&app.client.input_file, &record);
+		printf("[%s] callerid[%.*s]calledid[%.*s]\n", __FILE__,
+                           (int)record.callerid.slen, record.callerid.ptr,
+                           (int)record.calledid.slen, record.calledid.ptr);
+		if (record.callerid.slen) {
+			local_uri.ptr = pj_pool_alloc(app.pool, 128);
+			local_uri.slen = pj_ansi_sprintf(local_uri.ptr,
+					"<sip:%.*s@%.*s:%d;transport=%s>",
+					(int)record.callerid.slen,
+					record.callerid.ptr,
+					(int)app.local_addr.slen,
+					app.local_addr.ptr,
+					app.local_port,
+					app.transport_type);
+			printf("local[%.*s]\n", local_uri.slen, local_uri.ptr);
+		}
+		if (record.calledid.slen) {
+			pj_strdup(app.pool, &target_uri, &record.calledid);
+			printf("target[%.*s]\n", target_uri.slen, target_uri.ptr);
+		}
+		free(l);
+	}
+
 	char digit[11] = "0123456789";
 	char c[2] = "?";
 	char *ret;
-	do {
-		ret = strstr(target_uri.ptr, c);
-			if (ret) {
-			ret[0] = digit[rand()%9];
-		}
-	} while (ret);
-	// random callerid
-	pj_str_t local_uri;
-	pj_strdup(app.pool, &local_uri, (const pj_str_t *) &app.local_uri);
-	do {
-		ret = strstr(local_uri.ptr, c);
-			if (ret) {
-			ret[0] = digit[rand()%9];
-		}
-	} while (ret);
+	if (!target_uri.slen) {
+		pj_strdup(app.pool, &target_uri, dst_uri);
+		// random calledid
+		do {
+			ret = strstr(target_uri.ptr, c);
+				if (ret) {
+				ret[0] = digit[rand()%9];
+			}
+		} while (ret);
+	}
+	if (!local_uri.slen) {
+		pj_strdup(app.pool, &local_uri, (const pj_str_t *) &app.local_uri);
+		// random callerid
+		do {
+			ret = strstr(local_uri.ptr, c);
+				if (ret) {
+				ret[0] = digit[rand()%9];
+			}
+		} while (ret);
+	}
 
+	printf("[%.*s][%.*s]\n",
+			(int)local_uri.slen, local_uri.ptr,
+			(int)target_uri.slen, target_uri.ptr);
 	/* Create UAC dialog */
 	status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
 				   &local_uri,		/* local URI	    */
@@ -1333,6 +1365,7 @@ static void usage(void)
 	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
 	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
 	"   --call-per-second=COUNT, -C     Set maximum amount of call per second [default: 100]\n"
+	"   --input-file=NAME, -I   Set the csv input file name 'caller,called_id' \n"
 	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
 	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
@@ -1383,6 +1416,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
 	{ "interval",	    1, 0, 'i' },
+	{ "input-file",	    1, 0, 'I' },
 	{ "call-per-second",	    1, 0, 'C' },
 	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 	{ "verbose",        0, 0, 'v' },
@@ -1399,6 +1433,7 @@ static pj_status_t init_options(int argc, char *argv[])
 
     /* Init default application configs */
     app.local_port = 5060;
+    app.transport_type = NULL;
     app.thread_count = 1;
     app.client.job_count = DEFAULT_COUNT;
     app.client.cps = 100;
@@ -1471,6 +1506,9 @@ static pj_status_t init_options(int argc, char *argv[])
 			PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
 			return -1;
 		}
+		break;
+	case 'I':
+		app.client.input_file.fn = pj_str((char*)pj_optarg);
 		break;
 	case 'C':
 		app.client.cps = my_atoi(pj_optarg);
