@@ -1252,7 +1252,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 
 	int custom_headers_count = (int)(sizeof(HDR)/sizeof(HDR[0])/2);
 	int x, idx = 0;
-	for (int x=0; x<custom_headers_count ; x++) {
+	for (x=0; x<custom_headers_count ; x++) {
 		pjsip_generic_string_hdr *h;
 		pj_str_t hname, hvalue;
 		hname = pj_str((char *)HDR[idx]);
