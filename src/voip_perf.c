@@ -1193,10 +1193,13 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	pjmedia_sdp_session *sdp;
 	pjsip_tx_data *tdata;
 	pj_status_t status;
+	pj_time_val now, after;
 
-	// replace ? with random digits
+	pj_gettimeofday(&now); // profiling check
+
 	pj_str_t target_uri; // T.O.D.O. NEED TO FREE ?
-	pj_strdup(app.pool, &target_uri, dst_uri);
+	target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
+	target_uri.slen = dst_uri->slen;
 
 	// random calledid
 	char digit[11] = "0123456789";
@@ -1209,8 +1212,11 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		}
 	} while (ret);
 	// random callerid
+
 	pj_str_t local_uri;
-	pj_strdup(app.pool, &local_uri, (const pj_str_t *) &app.local_uri);
+	local_uri.ptr = strndup(app.local_uri.ptr, app.local_uri.slen);
+	local_uri.slen = app.local_uri.slen;
+
 	do {
 		ret = strstr(local_uri.ptr, c);
 			if (ret) {
@@ -1279,6 +1285,9 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	status = pjsip_inv_send_msg(call->inv, tdata);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
+	pj_gettimeofday(&after); // profiling check
+	PJ_TIME_VAL_SUB(after, now);
+	if (after.msec >1) PJ_LOG(1, (THIS_FILE, "delay %s check:[%d.%d]", __FUNCTION__, (int)after.sec, (int)after.msec));
 	return PJ_SUCCESS;
 }
 
@@ -1683,7 +1692,7 @@ static int client_thread(void *arg) {
 
 		while (app.cps_period.call_count_ms >= app.cps_period.cpms) {
 			pj_time_val wait = { 0, 1 };
-			pj_time_val now;
+			pj_time_val now, after;
 			unsigned count = 0;
 			pj_gettimeofday(&now);
 
@@ -1694,7 +1703,12 @@ static int client_thread(void *arg) {
 			}
 			pj_lock_release(app.cps_lock);
 
+			pj_gettimeofday(&now);
 			pjsip_endpt_handle_events2(app.sip_endpt, &wait, &count);
+			pj_gettimeofday(&after);
+			PJ_TIME_VAL_SUB(after, now);
+			if (after.msec > 5) PJ_LOG(1, (THIS_FILE, "event count[%d] delay[%d.%d]", count, (int)after.sec, (int)after.msec));
+
 			// CHECK CPS PERIOD
 			pj_gettimeofday(&now);
 			pj_lock_acquire(app.cps_lock);
@@ -1718,6 +1732,7 @@ static int client_thread(void *arg) {
 			pj_lock_release(app.cps_lock);
 		}
 		PJ_LOG(4, (THIS_FILE, "cps_period.calls_count_period[%d][%d.%d] cpms[%.2f]", app.cps_period.call_count, (int)app.cps_period.start.sec, (int)app.cps_period.start.msec, app.cps_period.cpms));
+
 		/* Submit one job */
 		if (app.client.method.id == PJSIP_INVITE_METHOD) {
 			status = make_call(&app.client.dst_uri);
