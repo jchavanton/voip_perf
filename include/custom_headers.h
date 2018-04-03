@@ -1,5 +1,5 @@
 
 
 const char* HDR[] = {
-	"X-custom", "my custom header value"
+	"X-Extra", "value",
 };

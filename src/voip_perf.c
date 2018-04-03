@@ -1300,34 +1300,32 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 /*
  * Verify that valid SIP url is given.
  */
-static pj_status_t verify_sip_url(const char *c_url)
-{
-    pjsip_uri *p;
-    pj_pool_t *pool;
-    char *url;
-    pj_size_t len = (c_url ? pj_ansi_strlen(c_url) : 0);
+static pj_status_t verify_sip_url(const char *c_url) {
+	pjsip_uri *p;
+	pj_pool_t *pool;
+	char *url;
+	pj_size_t len = (c_url ? pj_ansi_strlen(c_url) : 0);
 
-    if (!len) return -1;
+	if (!len) return -1;
 
-    pool = pj_pool_create(&app.cp.factory, "check%p", 1024, 0, NULL);
-    if (!pool) return PJ_ENOMEM;
+	pool = pj_pool_create(&app.cp.factory, "check%p", 1024, 0, NULL);
+	if (!pool) return PJ_ENOMEM;
 
-    url = pj_pool_alloc(pool, len+1);
-    pj_ansi_strcpy(url, c_url);
-    url[len] = '\0';
+	url = pj_pool_alloc(pool, len+1);
+	pj_ansi_strcpy(url, c_url);
+	url[len] = '\0';
 
-    p = pjsip_parse_uri(pool, url, len, 0);
-    if (!p || pj_stricmp2(pjsip_uri_get_scheme(p), "sip") != 0)
+	p = pjsip_parse_uri(pool, url, len, 0);
+	if (!p || pj_stricmp2(pjsip_uri_get_scheme(p), "sip") != 0)
 	p = NULL;
 
-    pj_pool_release(pool);
-    return p ? 0 : -1;
+	pj_pool_release(pool);
+	return p ? 0 : -1;
 }
 
 
-static void usage(void)
-{
-    printf(
+static void usage(void) {
+	printf(
 	"Usage:\n"
 	"   voip_perf [OPTIONS]        -- to start as server\n"
 	"   voip_perf [OPTIONS] URL    -- to call server (possibly itself)\n"
@@ -1378,174 +1376,175 @@ static void usage(void)
 }
 
 
-static int my_atoi(const char *s)
-{
-    pj_str_t ss = pj_str((char*)s);
-    return pj_strtoul(&ss);
+static int my_atoi(const char *s) {
+	pj_str_t ss = pj_str((char*)s);
+	return pj_strtoul(&ss);
 }
+
 
 static int add_proxy_route(const char *s) {
 	pjsip_route_hdr *route;
 	const pj_str_t hname = { "Route", 5 };
-	char *uri = pj_pool_zalloc(app.pool, sizeof(char) * 256);
-	snprintf(uri, 256, "sip:%s;lr", s);
+	int len = strlen(s);
+	len += 7;
+	char *uri = pj_pool_zalloc(app.pool, sizeof(char) * len);
+	snprintf(uri, len, "sip:%s;lr", s);
+	printf("adding Proxy : [%s|%d]\n", uri, len);
 	route = pjsip_parse_hdr(app.pool, &hname, uri, strlen(uri), NULL);
-	PJ_ASSERT_RETURN(route != NULL, 0);
-	pj_list_push_back(&app.route_set, route);
-	printf("adding Proxy [Route: %s]\n", uri);
+	PJ_ASSERT_RETURN(route != NULL, 1);
 	return 1;
 }
 
 
-static pj_status_t init_options(int argc, char *argv[])
-{
-    enum { OPT_THREAD_COUNT = 1, OPT_REAL_SDP, OPT_TRYING, OPT_RINGING };
-    struct pj_getopt_option long_options[] = {
-	{ "local-port",	    1, 0, 'p' },
-	{ "caller-id",	    1, 0, 'r' },
-	{ "count",	    1, 0, 'c' },
-	{ "thread-count",   1, 0, OPT_THREAD_COUNT },
-	{ "method",	    1, 0, 'm' },
-	{ "proxy",	    1, 0, 'P' },
-	{ "help",	    0, 0, 'h' },
-	{ "stateless",	    0, 0, 's' },
-	{ "timeout",	    1, 0, 't' },
-	{ "interval",	    1, 0, 'i' },
-	{ "call-per-second",	    1, 0, 'C' },
-	{ "real-sdp",	    0, 0, OPT_REAL_SDP },
-	{ "verbose",        0, 0, 'v' },
-	{ "use-tcp",	    0, 0, 'T' },
-	{ "window",	    1, 0, 'w' },
-	{ "delay",	    1, 0, 'd' },
-	{ "duration",	    1, 0, 'D' },
-	{ "trying",	    0, 0, OPT_TRYING},
-	{ "ringing",	    0, 0, OPT_RINGING},
-	{ NULL, 0, 0, 0 },
-    };
-    int c;
-    int option_index;
+static pj_status_t init_options(int argc, char *argv[]) {
+	enum { OPT_THREAD_COUNT = 1, OPT_REAL_SDP, OPT_TRYING, OPT_RINGING };
+	struct pj_getopt_option long_options[] = {
+		{ "local-port",	    1, 0, 'p' },
+		{ "caller-id",	    1, 0, 'r' },
+		{ "count",	    1, 0, 'c' },
+		{ "thread-count",   1, 0, OPT_THREAD_COUNT },
+		{ "method",	    1, 0, 'm' },
+		{ "proxy",	    1, 0, 'P' },
+		{ "help",	    0, 0, 'h' },
+		{ "stateless",	    0, 0, 's' },
+		{ "timeout",	    1, 0, 't' },
+		{ "interval",	    1, 0, 'i' },
+		{ "call-per-second",	    1, 0, 'C' },
+		{ "real-sdp",	    0, 0, OPT_REAL_SDP },
+		{ "verbose",        0, 0, 'v' },
+		{ "use-tcp",	    0, 0, 'T' },
+		{ "window",	    1, 0, 'w' },
+		{ "delay",	    1, 0, 'd' },
+		{ "duration",	    1, 0, 'D' },
+		{ "trying",	    0, 0, OPT_TRYING},
+		{ "ringing",	    0, 0, OPT_RINGING},
+		{ NULL, 0, 0, 0 },
+	};
 
-    /* Init default application configs */
-    app.local_port = 5060;
-    app.thread_count = 1;
-    app.client.job_count = DEFAULT_COUNT;
-    app.client.cps = 100;
-    app.client.method = *pjsip_get_options_method();
-    app.client.job_window = c = JOB_WINDOW;
-    app.client.timeout = 60;
-    app.latency_metrics_period_duration = 0;
-    app.log_level = 3;
-    pj_list_init(&app.route_set);
+	int c;
+	int option_index;
 
-    /* Parse options */
-    pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:P:r:c:m:t:w:d:D:C:i:hsv",
-			    long_options, &option_index))!=-1)
-    {
-	switch (c) {
-	case 'p':
-		app.local_port = my_atoi(pj_optarg);
-		if (app.local_port < 0 || app.local_port > 65535) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
+	/* Init default application configs */
+	app.local_port = 5060;
+	app.thread_count = 1;
+	app.client.job_count = DEFAULT_COUNT;
+	app.client.cps = 100;
+	app.client.method = *pjsip_get_options_method();
+	app.client.job_window = c = JOB_WINDOW;
+	app.client.timeout = 60;
+	app.latency_metrics_period_duration = 0;
+	app.log_level = 3;
+	pj_list_init(&app.route_set);
+
+	/* Parse options */
+	pj_optind = 0;
+	while((c=pj_getopt_long(argc,argv, "p:P:r:c:m:t:w:d:D:C:i:hsv",
+			    long_options, &option_index))!=-1) 
+	{
+		switch (c) {
+		case 'p':
+			app.local_port = my_atoi(pj_optarg);
+			if (app.local_port < 0 || app.local_port > 65535) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'P':
+			add_proxy_route(pj_optarg);
+			break;
+		case 'c':
+			app.client.job_count = my_atoi(pj_optarg);
+			if (app.client.job_count > pjsip_cfg()->tsx.max_count)
+				PJ_LOG(3,(THIS_FILE,
+				  "Warning: --count value (%d) exceeds maximum "
+				  "transaction count (%d)", app.client.job_count,
+				  pjsip_cfg()->tsx.max_count));
+			break;
+		case OPT_THREAD_COUNT:
+			app.thread_count = my_atoi(pj_optarg);
+			if (app.thread_count < 1 || app.thread_count > 16) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --thread-count %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'm':
+			{
+			pj_str_t temp = pj_str((char*)pj_optarg);
+			pjsip_method_init_np(&app.client.method, &temp);
+			}
+			break;
+		case 'h':
+			usage();
+			return -1;
+		case 's':
+			app.client.stateless = PJ_TRUE;
+			break;
+		case 'r':
+			app.client.callerid = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
+			break;
+		case OPT_REAL_SDP:
+			app.real_sdp = 1;
+			break;
+		case 'v':
+			app.log_level++;
+			break;
+		case 't':
+			app.client.timeout = my_atoi(pj_optarg);
+			if (app.client.timeout > 86400) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'i':
+			app.latency_metrics_period_duration = my_atoi(pj_optarg);
+			if (app.latency_metrics_period_duration < 1) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'C':
+			app.client.cps = my_atoi(pj_optarg);
+			if (app.client.cps < 1 || app.client.cps >= 10000) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --call-per-second %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'w':
+			app.client.job_window = my_atoi(pj_optarg);
+			if (app.client.job_window <= 0) {
+				PJ_LOG(3,(THIS_FILE, "Invalid --window %s", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'T':
+			app.use_tcp = PJ_TRUE;
+			break;
+		case 'd':
+			app.server.delay = my_atoi(pj_optarg);
+			if (app.server.delay > 36000) {
+			PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
+				return -1;
+			}
+			break;
+		case 'D':
+			app.client.call_duration = my_atoi(pj_optarg);
+			if (app.client.call_duration > 3600) {
+			PJ_LOG(3,(THIS_FILE, "I think --duration %s is too long", pj_optarg));
+				return -1;
+			}
+			break;
+		case OPT_TRYING:
+			app.server.send_trying = 1;
+			break;
+		case OPT_RINGING:
+			app.server.send_ringing = 1;
+			break;
+		default:
+			PJ_LOG(1,(THIS_FILE, "Invalid argument. Use --help to see help"));
 			return -1;
 		}
-		break;
-	case 'P':
-		add_proxy_route(pj_optarg);
-		break;
-	case 'c':
-		app.client.job_count = my_atoi(pj_optarg);
-		if (app.client.job_count > pjsip_cfg()->tsx.max_count)
-			PJ_LOG(3,(THIS_FILE,
-			  "Warning: --count value (%d) exceeds maximum "
-			  "transaction count (%d)", app.client.job_count,
-			  pjsip_cfg()->tsx.max_count));
-		break;
-	case OPT_THREAD_COUNT:
-		app.thread_count = my_atoi(pj_optarg);
-		if (app.thread_count < 1 || app.thread_count > 16) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --thread-count %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'm':
-		{
-		pj_str_t temp = pj_str((char*)pj_optarg);
-		pjsip_method_init_np(&app.client.method, &temp);
-		}
-		break;
-	case 'h':
-		usage();
-		return -1;
-	case 's':
-		app.client.stateless = PJ_TRUE;
-		break;
-	case 'r':
-		app.client.callerid = pj_str((char*)pj_optarg);
-		PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
-		break;
-	case OPT_REAL_SDP:
-		app.real_sdp = 1;
-		break;
-	case 'v':
-		app.log_level++;
-		break;
-	case 't':
-		app.client.timeout = my_atoi(pj_optarg);
-		if (app.client.timeout > 86400) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'i':
-		app.latency_metrics_period_duration = my_atoi(pj_optarg);
-		if (app.latency_metrics_period_duration < 1) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'C':
-		app.client.cps = my_atoi(pj_optarg);
-		if (app.client.cps < 1 || app.client.cps >= 10000) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --call-per-second %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'w':
-		app.client.job_window = my_atoi(pj_optarg);
-		if (app.client.job_window <= 0) {
-			PJ_LOG(3,(THIS_FILE, "Invalid --window %s", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'T':
-		app.use_tcp = PJ_TRUE;
-		break;
-	case 'd':
-		app.server.delay = my_atoi(pj_optarg);
-		if (app.server.delay > 36000) {
-		PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
-			return -1;
-		}
-		break;
-	case 'D':
-		app.client.call_duration = my_atoi(pj_optarg);
-		if (app.client.call_duration > 3600) {
-		PJ_LOG(3,(THIS_FILE, "I think --duration %s is too long", pj_optarg));
-			return -1;
-		}
-		break;
-	case OPT_TRYING:
-		app.server.send_trying = 1;
-		break;
-	case OPT_RINGING:
-		app.server.send_ringing = 1;
-		break;
-	default:
-		PJ_LOG(1,(THIS_FILE, "Invalid argument. Use --help to see help"));
-		return -1;
 	}
-    }
 
 	if (pj_optind != argc) {
 		if (verify_sip_url(argv[pj_optind]) != PJ_SUCCESS) {
@@ -1553,7 +1552,6 @@ static pj_status_t init_options(int argc, char *argv[])
 		    return -1;
 		}
 		app.client.dst_uri = pj_str(argv[pj_optind]);
-		
 		pj_optind++;
 	}
 

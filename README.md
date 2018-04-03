@@ -10,7 +10,7 @@ It is a complete program to measure the
 
  Both server and client part can run simultaneously, to measure the
  performance when both endpoints are co-located in a single program.
- 
+
  The server accepts both INVITE and non-INVITE requests.
  The server exports several different types of URL, which would
  control how the request would be handled by the server:
@@ -30,28 +30,20 @@ It is a complete program to measure the
      Also for every call, server will limit the call duration to
      10 seconds, on which the call will be terminated if the client
      doesn't hangup the call.
-     
+
  The client will generate SIP responses latency metrics at defined interval in CSV format.
 
 
 ### INSTALLATION (example ubuntu)
 
 ```
-apt-get install build-essential
-apt-get install libcurl4-openssl-dev
-apt-get install cmake
-apt-get install git
-apt-get install libasound2-dev
-apt-get install pkg-config
+apt-get install -y build-essential libcurl4-openssl-dev cmake git libasound2-dev pkg-config
 
 git clone https://github.com/jchavanton/voip_perf.git
 cd voip_perf
 git submodule update --init
 cd pjsua/
-./configure
-make dep
-make
-make install
+./configure && make dep && make && make install
 cd ..
 cmake CMakeLists.txt
 make
@@ -68,26 +60,32 @@ include/custom_headers.h
 
 ### Example : starting a server
 
-```
-./voip_perf  -p 5072 --trying --ringing --thread-count=4 -d 10000
+```bash
+./voip_perf  \
+   -p 5072 \               # server listening port
+   --trying \              # when receiving invite 100 trying will be send
+   --ringing \             # when receiving invite 183 will be sent
+   --thread-count=4 \      # number of server threads created
+   -d 10000                # ringing delay 1 second
 
-# -p | server listening port
-# --ringing | when receiving invite 183 will be sent 
-# --trying  | when receiving invite 100 trying will be send
-# -d 1000 | ringing delay 1 second
 ```
 
 ### Example : starting a client
 
 This will send one INVITE to a randomise number starting with +1206?????? to server 1.1.1.1
 
-```
-./voip_perf -m INVITE -p 5072 sip:+1206???????@1.1.1.1 --count=1 --duration=5 --call-per-second=500 --window=100000 --thread-count=1 -i 1 -t 7200
-
-# --count=1    | send on oly one call, this is just to make sure you do not strom a server by mistake, increase it
-# --duration=5 | send BYE after 5 seconds
-# --call-per-second=500  | send 500 cps
-# --window=1000000 | the maximum amount of active requests, in case something is lagging
-# --thread-count=1 | how many thread to use
-# -t 7200 | total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
+```bash
+./voip_perf \
+  -m INVITE \                 # method
+  -p 5072 \                   # source port
+  sip:+1206???????@1.1.1.1 \  # target R-URI, <?> will be replaced by random digit
+  --caller-id=+1?????????? \  # user part of the From header, <?> will be replaced by random digit
+  --count=1 \                 # total calls to send
+  --proxy=2.2.2.2 \           # this will send the SIP message to a SIP proxy instead of the host in R-URI
+  --duration=5 \              # send BYE after 5 seconds
+  --call-per-second=500 \     # send 500cps
+  --window=100000 \    # maximum amount of in progress calls
+  --thread-count=1 \   # number of thread used
+  --interval=1 \       # reporting interval, everyone second a line is added to voip_perf_stats.log with latency metrics
+  -t 7200              # total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
 ```

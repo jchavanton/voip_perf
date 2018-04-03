@@ -37,24 +37,6 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
 execute_process(COMMAND "./pjsua/config.guess" OUTPUT_VARIABLE AC_SYSTEM)
 string(STRIP ${AC_SYSTEM} AC_SYSTEM)
 
-#target_link_libraries(voip_perf
-#	pjsua-${AC_SYSTEM}
-#	pjsip-ua-${AC_SYSTEM}
-#	pjsip-simple-${AC_SYSTEM}
-#	pjsip-${AC_SYSTEM}
-#	pjmedia-codec-${AC_SYSTEM}
-#	pjmedia-${AC_SYSTEM}
-#	pjmedia-audiodev-${AC_SYSTEM}
-#	pjlib-util-${AC_SYSTEM}
-#	pjnath-${AC_SYSTEM}
-#	srtp-${AC_SYSTEM}
-#	speex-${AC_SYSTEM}
-#	ilbccodec-${AC_SYSTEM}
-#	pj-${AC_SYSTEM}
-#	pthread
-#	m
-#)
-
 target_link_libraries(voip_perf
 	pjsua-${AC_SYSTEM}
 	pjsip-ua-${AC_SYSTEM}
@@ -79,37 +61,20 @@ target_link_libraries(voip_perf
 	asound
 )
 
-#target_link_libraries(voip_perf
-	#	pjsua2-${AC_SYSTEM}
-	#	stdc++
-	#	pjsua-${AC_SYSTEM}
-	#	pjsip-ua-${AC_SYSTEM}
-	#	pjsip-simple-${AC_SYSTEM}
-	#	pjsip-${AC_SYSTEM}
-	#	pjmedia-codec-${AC_SYSTEM}
-	#	pjmedia-${AC_SYSTEM}
-	#	pjmedia-videodev-${AC_SYSTEM}
-	#	pjmedia-audiodev-${AC_SYSTEM}
-	#	pjmedia-${AC_SYSTEM}
-	#	pjnath-${AC_SYSTEM}
-	#	pjlib-util-${AC_SYSTEM}
-	#	srtp-${AC_SYSTEM}
-	#	resample-${AC_SYSTEM}
-	#	gsmcodec-${AC_SYSTEM}
-	#	speex-${AC_SYSTEM}
-	#	ilbccodec-${AC_SYSTEM}
-	#	g7221codec-${AC_SYSTEM}
-	#	pj-${AC_SYSTEM}
-	#	pthread
-	#	curl
-	#	m
-	#)
-
 find_package(PkgConfig REQUIRED)
+
 pkg_search_module(OPENSSL openssl)
 if( OPENSSL_FOUND )
 	message("openssl found")
 	target_link_libraries(voip_perf ssl crypto)
 else()
 	message("openssl not found")
+endif()
+
+pkg_search_module(OPUS opus)
+if( OPUS_FOUND )
+	message("opus found")
+	target_link_libraries(voip_perf opus)
+else()
+	message("opus not found")
 endif()
