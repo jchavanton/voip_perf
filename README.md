@@ -68,26 +68,30 @@ include/custom_headers.h
 
 ### Example : starting a server
 
-```
-./voip_perf  -p 5072 --trying --ringing --thread-count=4 -d 10000
+```bash
+./voip_perf  \
+   -p 5072 \               # server listening port
+   --trying \              # when receiving invite 100 trying will be send
+   --ringing \             # when receiving invite 183 will be sent
+   --thread-count=4 \      # number of server threads created
+   -d 10000                # ringing delay 1 second
 
-# -p | server listening port
-# --ringing | when receiving invite 183 will be sent 
-# --trying  | when receiving invite 100 trying will be send
-# -d 1000 | ringing delay 1 second
 ```
 
 ### Example : starting a client
 
 This will send one INVITE to a randomise number starting with +1206?????? to server 1.1.1.1
 
-```
-./voip_perf -m INVITE -p 5072 sip:+1206???????@1.1.1.1 --count=1 --duration=5 --call-per-second=500 --window=100000 --thread-count=1 -i 1 -t 7200
-
-# --count=1    | send on oly one call, this is just to make sure you do not strom a server by mistake, increase it
-# --duration=5 | send BYE after 5 seconds
-# --call-per-second=500  | send 500 cps
-# --window=1000000 | the maximum amount of active requests, in case something is lagging
-# --thread-count=1 | how many thread to use
-# -t 7200 | total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
+```bash
+./voip_perf \
+  -m INVITE \                 # method
+  -p 5072 \                   # source port
+  sip:+1206???????@1.1.1.1 \  # target RURI ? will be replaced by random digit
+  --count=1 \                 # total calls to send 
+  --duration=5 \              # send BYE after 5 seconds
+  --call-per-second=500 \     # send 500cps
+  --window=100000 \    # maximum amount of in progress calls
+  --thread-count=1 \   # number of thread used
+  --interval=1 \       # reporting interval, everyone second a line is added to voip_perf_stats.log with latency metrics
+  -t 7200              # total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
 ```
