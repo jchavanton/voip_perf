@@ -163,6 +163,7 @@ struct app {
 	pj_bool_t real_sdp;
 	pjmedia_sdp_session *dummy_sdp;
 	int log_level;
+	pjsip_route_hdr route_set;
 
 	struct {
 		pjsip_method method;
@@ -1229,11 +1230,12 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 				   &local_uri,		/* local URI	    */
 				   &app.local_contact,	/* local Contact    */
 				   &target_uri,		/* remote URI	    */
-				   &target_uri,		/* remote target    */
+				   NULL,		/* remote target    */
 				   &dlg);		/* dialog	    */
 	if (status != PJ_SUCCESS) {
 		return status;
 	}
+
 
 	/* Create call */
 	call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
@@ -1254,6 +1256,9 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	if (status != PJ_SUCCESS) {
 		pjsip_dlg_terminate(dlg);
 		return status;
+	}
+	if (pj_list_empty(&app.route_set) == 0 ) {
+		pjsip_dlg_set_route_set(dlg, &app.route_set);
 	}
 
 	int custom_headers_count = (int)(sizeof(HDR)/sizeof(HDR[0])/2);
@@ -1332,6 +1337,7 @@ static void usage(void)
 	"                           '?' will be replaced by random digits from 0-9\n"
 	"\n"
 	"Client options:\n"
+	"   --proxy=IP, -P          Set the Route host part of the SIP proxy\n"
 	"   --method=METHOD, -m     Set test method (set to INVITE for call benchmark)\n"
         "                           [default: OPTIONS]\n"
 	"   --caller-id, -r         Set the caller-id '?' will be replaced by random digits from 0-9\n"
@@ -1378,6 +1384,18 @@ static int my_atoi(const char *s)
     return pj_strtoul(&ss);
 }
 
+static int add_proxy_route(const char *s) {
+	pjsip_route_hdr *route;
+	const pj_str_t hname = { "Route", 5 };
+	char *uri = pj_pool_zalloc(app.pool, sizeof(char) * 256);
+	snprintf(uri, 256, "sip:%s;lr", s);
+	route = pjsip_parse_hdr(app.pool, &hname, uri, strlen(uri), NULL);
+	PJ_ASSERT_RETURN(route != NULL, 0);
+	pj_list_push_back(&app.route_set, route);
+	printf("adding Proxy [Route: %s]\n", uri);
+	return 1;
+}
+
 
 static pj_status_t init_options(int argc, char *argv[])
 {
@@ -1388,6 +1406,7 @@ static pj_status_t init_options(int argc, char *argv[])
 	{ "count",	    1, 0, 'c' },
 	{ "thread-count",   1, 0, OPT_THREAD_COUNT },
 	{ "method",	    1, 0, 'm' },
+	{ "proxy",	    1, 0, 'P' },
 	{ "help",	    0, 0, 'h' },
 	{ "stateless",	    0, 0, 's' },
 	{ "timeout",	    1, 0, 't' },
@@ -1416,10 +1435,11 @@ static pj_status_t init_options(int argc, char *argv[])
     app.client.timeout = 60;
     app.latency_metrics_period_duration = 0;
     app.log_level = 3;
+    pj_list_init(&app.route_set);
 
     /* Parse options */
     pj_optind = 0;
-    while((c=pj_getopt_long(argc,argv, "p:r:c:m:t:w:d:D:C:i:hsv",
+    while((c=pj_getopt_long(argc,argv, "p:P:r:c:m:t:w:d:D:C:i:hsv",
 			    long_options, &option_index))!=-1)
     {
 	switch (c) {
@@ -1429,6 +1449,9 @@ static pj_status_t init_options(int argc, char *argv[])
 			PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
 			return -1;
 		}
+		break;
+	case 'P':
+		add_proxy_route(pj_optarg);
 		break;
 	case 'c':
 		app.client.job_count = my_atoi(pj_optarg);
