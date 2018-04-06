@@ -87,6 +87,7 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
   -m INVITE \                 # method
   -p 5072 \                   # source port
   sip:+1206???????@1.1.1.1 \  # target R-URI, <?> will be replaced by random digit
+  --caller-id=+1?????????? \  # user part of the From header, <?> will be replaced by random digit
   --count=1 \                 # total calls to send
   --proxy=2.2.2.2 \           # this will send the SIP message to a SIP proxy instead of the host in R-URI
   --duration=5 \              # send BYE after 5 seconds
