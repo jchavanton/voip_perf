@@ -10,7 +10,7 @@ It is a complete program to measure the
 
  Both server and client part can run simultaneously, to measure the
  performance when both endpoints are co-located in a single program.
- 
+
  The server accepts both INVITE and non-INVITE requests.
  The server exports several different types of URL, which would
  control how the request would be handled by the server:
@@ -30,7 +30,7 @@ It is a complete program to measure the
      Also for every call, server will limit the call duration to
      10 seconds, on which the call will be terminated if the client
      doesn't hangup the call.
-     
+
  The client will generate SIP responses latency metrics at defined interval in CSV format.
 
 
@@ -86,8 +86,9 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 ./voip_perf \
   -m INVITE \                 # method
   -p 5072 \                   # source port
-  sip:+1206???????@1.1.1.1 \  # target RURI ? will be replaced by random digit
-  --count=1 \                 # total calls to send 
+  sip:+1206???????@1.1.1.1 \  # target R-URI, <?> will be replaced by random digit
+  --count=1 \                 # total calls to send
+  --proxy=2.2.2.2 \           # this will send the SIP message to a SIP proxy instead of the host in R-URI
   --duration=5 \              # send BYE after 5 seconds
   --call-per-second=500 \     # send 500cps
   --window=100000 \    # maximum amount of in progress calls
