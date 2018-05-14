@@ -77,6 +77,7 @@ target_link_libraries(voip_perf
 	pthread
 	m
 	asound
+	opus
 )
 
 #target_link_libraries(voip_perf
