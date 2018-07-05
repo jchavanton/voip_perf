@@ -149,6 +149,7 @@ struct app {
 	pj_caching_pool cp;
 	pj_pool_t *pool;
 	pj_bool_t use_tcp;
+	pj_bool_t use_tls;
 	pj_str_t local_addr;
 	int local_port;
 	pjsip_endpoint *sip_endpt;
@@ -768,11 +769,27 @@ static pj_status_t init_sip() {
 	} else if (app.use_tcp) {
 		pj_sockaddr_in local_addr;
 		pjsip_tpfactory *tpfactory;
-
 		transport_type = "tcp";
 		pj_sockaddr_in_init(&local_addr, 0, (pj_uint16_t)app.local_port);
 		status = pjsip_tcp_transport_start(app.sip_endpt, &local_addr,
                                       app.thread_count, &tpfactory);
+		if (status == PJ_SUCCESS) {
+			app.local_addr = tpfactory->addr_name.host;
+			app.local_port = tpfactory->addr_name.port;
+		}
+	} else if (app.use_tls)  {
+		pjsip_tls_setting tls_settings;
+		pj_strdup2(app.pool, &tls_settings.cert_file, "tls/certificate.pem");
+		pj_strdup2(app.pool, &tls_settings.privkey_file, "tls/key.pem");
+		pj_strdup2(app.pool, &tls_settings.ca_list_file, "tls/ca_list.pem");
+		pj_strdup2(app.pool, &tls_settings.ca_list_path, "");
+		pj_strdup2(app.pool, &tls_settings.password, "");
+		tls_settings.verify_server = PJ_TRUE;
+
+		pjsip_tpfactory *tpfactory;
+		transport_type = "tls";
+		status = pjsip_tls_transport_start(app.sip_endpt, &tls_settings, &addr,
+            (app.local_addr.slen ? &addrname:NULL), app.thread_count, &tpfactory);
 		if (status == PJ_SUCCESS) {
 			app.local_addr = tpfactory->addr_name.host;
 			app.local_port = tpfactory->addr_name.port;
@@ -1410,6 +1427,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "real-sdp",	    0, 0, OPT_REAL_SDP },
 		{ "verbose",        0, 0, 'v' },
 		{ "use-tcp",	    0, 0, 'T' },
+		{ "use-tls",	    0, 0, 'S' },
 		{ "window",	    1, 0, 'w' },
 		{ "delay",	    1, 0, 'd' },
 		{ "duration",	    1, 0, 'D' },
@@ -1516,6 +1534,9 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			break;
 		case 'T':
 			app.use_tcp = PJ_TRUE;
+			break;
+		case 'S':
+			app.use_tls = PJ_TRUE;
 			break;
 		case 'd':
 			app.server.delay = my_atoi(pj_optarg);
