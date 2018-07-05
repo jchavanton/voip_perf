@@ -59,10 +59,17 @@ target_link_libraries(voip_perf
 	pthread
 	m
 	asound
-	uuid
 )
 
 find_package(PkgConfig REQUIRED)
+
+pkg_search_module(UUID uuid)
+if( UUID_FOUND )
+	message("uuid found")
+	target_link_libraries(voip_perf uuid)
+else()
+	message("uuid not found")
+endif()
 
 pkg_search_module(OPENSSL openssl)
 if( OPENSSL_FOUND )
