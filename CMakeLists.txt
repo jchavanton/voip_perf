@@ -59,6 +59,7 @@ target_link_libraries(voip_perf
 	pthread
 	m
 	asound
+	uuid
 )
 
 find_package(PkgConfig REQUIRED)
