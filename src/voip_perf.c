@@ -744,8 +744,8 @@ static pj_status_t create_app(void) {
 static pj_status_t init_sip() {
 	pj_status_t status = -1;
 
-    /* Add UDP/TCP transport. */
-    {
+	/* Add UDP/TCP transport. */
+	{
 	pj_sockaddr_in addr;
 	pjsip_host_port addrname;
 	const char *transport_type = NULL;
@@ -757,44 +757,41 @@ static pj_status_t init_sip() {
 	addr.sin_port = pj_htons((pj_uint16_t)app.local_port);
 
 	if (app.local_addr.slen) {
-	    addrname.host = app.local_addr;
-	    addrname.port = 5060;
-	} 
+		addrname.host = app.local_addr;
+		addrname.port = 5060;
+	}
 	if (app.local_port != 0)
-	    addrname.port = app.local_port;
+		addrname.port = app.local_port;
 
 	if (0) {
 #if defined(PJ_HAS_TCP) && PJ_HAS_TCP!=0
 	} else if (app.use_tcp) {
-	    pj_sockaddr_in local_addr;
-	    pjsip_tpfactory *tpfactory;
-	    
-	    transport_type = "tcp";
-	    pj_sockaddr_in_init(&local_addr, 0, (pj_uint16_t)app.local_port);
-	    status = pjsip_tcp_transport_start(app.sip_endpt, &local_addr,
-					       app.thread_count, &tpfactory);
-	    if (status == PJ_SUCCESS) {
-		app.local_addr = tpfactory->addr_name.host;
-		app.local_port = tpfactory->addr_name.port;
-	    }
+		pj_sockaddr_in local_addr;
+		pjsip_tpfactory *tpfactory;
+
+		transport_type = "tcp";
+		pj_sockaddr_in_init(&local_addr, 0, (pj_uint16_t)app.local_port);
+		status = pjsip_tcp_transport_start(app.sip_endpt, &local_addr,
+                                      app.thread_count, &tpfactory);
+		if (status == PJ_SUCCESS) {
+			app.local_addr = tpfactory->addr_name.host;
+			app.local_port = tpfactory->addr_name.port;
+		}
 #endif
 	} else {
-	    pjsip_transport *tp;
-
-	//    pjsip_str ip = {"127.0.1.1",9};
-	    transport_type = "udp";
-	    status = pjsip_udp_transport_start(app.sip_endpt, &addr, 
-					       (app.local_addr.slen ? &addrname:NULL),
-					       app.thread_count, &tp);
-	    if (status == PJ_SUCCESS) {
-		app.local_addr = tp->local_name.host;
-		app.local_port = tp->local_name.port;
-	    }
-
+		pjsip_transport *tp;
+		// pjsip_str ip = {"127.0.1.1",9};
+		transport_type = "udp";
+		status = pjsip_udp_transport_start(app.sip_endpt, &addr,
+            (app.local_addr.slen ? &addrname:NULL), app.thread_count, &tp);
+		if (status == PJ_SUCCESS) {
+			app.local_addr = tp->local_name.host;
+			app.local_port = tp->local_name.port;
+		}
 	}
 	if (status != PJ_SUCCESS) {
-	    app_perror(THIS_FILE, "Unable to start transport", status);
-	    return status;
+		app_perror(THIS_FILE, "Unable to start transport", status);
+		return status;
 	}
 
 	PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
@@ -819,25 +816,25 @@ static pj_status_t init_sip() {
 					transport_type);
 	}
 	app.local_contact = app.local_uri;
-    }
+	}
 
-    /*
-     * Init transaction layer.
-     * This will create/initialize transaction hash tables etc.
-     */
-    status = pjsip_tsx_layer_init_module(app.sip_endpt);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/*
+	 * Init transaction layer.
+	 * This will create/initialize transaction hash tables etc.
+	 */
+	status = pjsip_tsx_layer_init_module(app.sip_endpt);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /*  Initialize UA layer. */
-    status = pjsip_ua_init_module( app.sip_endpt, NULL );
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/*  Initialize UA layer. */
+	status = pjsip_ua_init_module( app.sip_endpt, NULL );
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /* Initialize 100rel support */
-    status = pjsip_100rel_init_module(app.sip_endpt);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Initialize 100rel support */
+	status = pjsip_100rel_init_module(app.sip_endpt);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /*  Init invite session module. */
-    {
+	/*  Init invite session module. */
+	{
 	pjsip_inv_callback inv_cb;
 
 	/* Init the callback for INVITE session: */
@@ -850,33 +847,33 @@ static pj_status_t init_sip() {
 	/* Initialize invite session module:  */
 	status = pjsip_inv_usage_init(app.sip_endpt, &inv_cb);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, 1);
-    }
+	}
 
-    /* Register our module to receive incoming requests. */
-    status = pjsip_endpt_register_module( app.sip_endpt, &mod_test);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Register our module to receive incoming requests. */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_test);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /* Register stateless server module */
-    status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateless_server);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Register stateless server module */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateless_server);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /* Register default responder module */
-    status = pjsip_endpt_register_module( app.sip_endpt, &mod_responder);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Register default responder module */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_responder);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /* Register stateless server module */
-    status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateful_server);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Register stateless server module */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateful_server);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-    /* Register call server module */
-    status = pjsip_endpt_register_module( app.sip_endpt, &mod_call_server);
-    PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
+	/* Register call server module */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_call_server);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
 	status = pjsip_endpt_register_module(app.sip_endpt, &mod_latency);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 	PJ_LOG(3,(THIS_FILE, "latency module registered id[%d]", mod_latency.id));
-    /* Done */
-    return PJ_SUCCESS;
+
+	return PJ_SUCCESS;
 }
 
 
