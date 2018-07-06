@@ -1771,7 +1771,7 @@ static int client_thread(void *arg) {
 				app.cps_period.cpms = cps_remaining/(float)cps_period_remaining_ms;
 				if (app.cps_period.cpms < 0)
 					app.cps_period.cpms = 0;
-				PJ_LOG(4, (THIS_FILE, "cps_period.calls_count_period[%d/%d] elapsed[%dms] new_cpms[%.2f] [%d/%d]",
+				PJ_LOG(6, (THIS_FILE, "cps_period.calls_count_period[%d/%d] elapsed[%dms] new_cpms[%.2f] [%d/%d]",
 								app.cps_period.call_count, app.client.cps,
                                                                 (int)now.msec,
                                                                 app.cps_period.cpms, cps_remaining, cps_period_remaining_ms));
