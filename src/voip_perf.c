@@ -786,14 +786,19 @@ static pj_status_t init_sip() {
 		pj_strdup2(app.pool, &tls_settings.password, "");
 		tls_settings.verify_server = PJ_TRUE;
 
+		pj_ssl_cipher ciphers[PJ_SSL_SOCK_MAX_CIPHERS];
+		unsigned count = PJ_ARRAY_SIZE(ciphers);
+		pj_ssl_cipher_get_availables(ciphers, &count);
+
 		pjsip_tpfactory *tpfactory;
 		transport_type = "tls";
 		status = pjsip_tls_transport_start(app.sip_endpt, &tls_settings, &addr,
-            (app.local_addr.slen ? &addrname:NULL), app.thread_count, &tpfactory);
+                     (app.local_addr.slen ? &addrname:NULL), app.thread_count, &tpfactory);
 		if (status == PJ_SUCCESS) {
 			app.local_addr = tpfactory->addr_name.host;
 			app.local_port = tpfactory->addr_name.port;
 		}
+
 #endif
 	} else {
 		pjsip_transport *tp;

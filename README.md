@@ -89,3 +89,6 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
   --interval=1 \       # reporting interval, everyone second a line is added to voip_perf_stats.log with latency metrics
   -t 7200              # total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
 ```
+
+
+http://www.pjsip.org/release/0.5.4/PJSIP-Dev-Guide.pdf
