@@ -62,12 +62,11 @@ include/custom_headers.h
 
 ```bash
 ./voip_perf  \
-   -p 5072 \               # server listening port
+   --local-port=5072 \     # server listening port
    --trying \              # when receiving invite 100 trying will be send
    --ringing \             # when receiving invite 183 will be sent
    --thread-count=4 \      # number of server threads created
-   -d 10000                # ringing delay 1 second
-
+   --duration=10000       # ringing delay 1 second
 ```
 
 ### Example : starting a client
@@ -76,19 +75,39 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 
 ```bash
 ./voip_perf \
-  -m INVITE \                 # method
-  -p 5072 \                   # source port
-  sip:+1206???????@1.1.1.1 \  # target R-URI, <?> will be replaced by random digit
-  --caller-id=+1?????????? \  # user part of the From header, <?> will be replaced by random digit
+  "sip:+1206???????@1.1.1.1" \ # target R-URI, <?> will be replaced by random digit
+  --method="INVITE" \          # method
+  --local-port=5072 \          # source port
+  --caller-id="+1??????????" \ # user part of the From header, <?> will be replaced by random digit
   --count=1 \                 # total calls to send
   --proxy=2.2.2.2 \           # this will send the SIP message to a SIP proxy instead of the host in R-URI
   --duration=5 \              # send BYE after 5 seconds
   --call-per-second=500 \     # send 500cps
-  --window=100000 \    # maximum amount of in progress calls
-  --thread-count=1 \   # number of thread used
-  --interval=1 \       # reporting interval, everyone second a line is added to voip_perf_stats.log with latency metrics
-  -t 7200              # total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
+  --window=100000 \           # maximum amount of in progress calls
+  --thread-count=1 \          # number of thread used
+  --interval=1 \              # reporting interval, everyone second a line is added to voip_perf_stats.log with latency metrics
+  --timeout 7200              # total run time , if all the requests where not send, voip_perf will stop and report scnenario timeout
+# --verbose                   # runwith verbose logs
 ```
 
+### Example : starting a client with TLS
+
+```bash
+./voip_perf "sip:+1??????????@sip.domain.com:5061;transport=tls" \
+            --local-port=5050 \
+            --method="INVITE" \
+            --caller-id="+1??????????" \
+            --interval=1 \
+            --count=20 \
+            --call-per-second=10 \
+	    --window=25 \
+            --thread-count=1 \
+            --use-tls \
+            --timeout 7200 \
+            --tls-cert="tls/certificate.pem" \
+            --tls-key="tls/key.pem" \
+            --tls-calist="tls/ca_list.pem" \
+#           --verbose \
+```
 
 http://www.pjsip.org/release/0.5.4/PJSIP-Dev-Guide.pdf

@@ -1,8 +1,7 @@
-/* $Id: pjsip-perf.c 5241 2016-02-05 04:29:17Z nanang $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
- * Copyright (C) 2017      Julien Chavanton <jchavanton@gmail.com>
+ * Copyright (C) 2017-2018 Julien Chavanton <jchavanton@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,7 +19,7 @@
  */
 
 /**
- * \page page_pjsip_perf_c Samples: SIP Performance Benchmark
+ * SIP Performance Benchmark
  *
  * <b>voip_perf</b> is a complete program to measure the
  * performance of PJSIP or other SIP endpoints. It consists of two
@@ -50,9 +49,6 @@
  *    10 seconds, on which the call will be terminated if the client
  *    doesn't hangup the call.
  *
- * This file is pjsip-apps/src/samples/pjsip-perf.c.c
- *
- * \includelineno pjsip-perf.c.c
  */
 
 #define PJSIP_MAX_TSX_COUNT (131072-1)
@@ -146,6 +142,7 @@ typedef struct cps_period {
 } cps_period_t;
 
 struct app {
+
 	pj_caching_pool cp;
 	pj_pool_t *pool;
 	pj_bool_t use_tcp;
@@ -190,6 +187,14 @@ struct app {
 		struct srv_state prev_state;
 		struct srv_state cur_state;
 	} server;
+
+	struct {
+		pj_str_t cert;
+		pj_str_t key;
+		pj_str_t pass;
+		pj_str_t calist;
+	} tls;
+
 	voip_perf_metric_t latency_metrics[3];
 	// latency_metrics[3];
 	pj_time_val latency_metrics_period_start;
@@ -779,11 +784,11 @@ static pj_status_t init_sip() {
 		}
 	} else if (app.use_tls)  {
 		pjsip_tls_setting tls_settings;
-		pj_strdup2(app.pool, &tls_settings.cert_file, "tls/certificate.pem");
-		pj_strdup2(app.pool, &tls_settings.privkey_file, "tls/key.pem");
-		pj_strdup2(app.pool, &tls_settings.ca_list_file, "tls/ca_list.pem");
+		pj_strdup2(app.pool, &tls_settings.cert_file, app.tls.cert.ptr);
+		pj_strdup2(app.pool, &tls_settings.privkey_file, app.tls.key.ptr);
+		pj_strdup2(app.pool, &tls_settings.ca_list_file, app.tls.calist.ptr);
 		pj_strdup2(app.pool, &tls_settings.ca_list_path, "");
-		pj_strdup2(app.pool, &tls_settings.password, "");
+		pj_strdup2(app.pool, &tls_settings.password, app.tls.pass.ptr);
 		tls_settings.verify_server = PJ_TRUE;
 
 		pj_ssl_cipher ciphers[PJ_SSL_SOCK_MAX_CIPHERS];
@@ -816,9 +821,7 @@ static pj_status_t init_sip() {
 		return status;
 	}
 
-	PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
 	if (app.client.callerid.ptr) {
-		PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
 		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
 		app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr,
 					"<sip:%.*s@%.*s:%d;transport=%s>",
@@ -1354,18 +1357,18 @@ static void usage(void) {
 	"                           '?' will be replaced by random digits from 0-9\n"
 	"\n"
 	"Client options:\n"
-	"   --proxy=IP, -P          Set the Route host part of the SIP proxy\n"
-	"   --method=METHOD, -m     Set test method (set to INVITE for call benchmark)\n"
+	"   --proxy=IP              Set the Route host part of the SIP proxy\n"
+	"   --method=METHOD         Set test method (set to INVITE for call benchmark)\n"
         "                           [default: OPTIONS]\n"
-	"   --caller-id, -r         Set the caller-id '?' will be replaced by random digits from 0-9\n"
-	"   --count=N, -c           Set total number of requests to initiate\n"
+	"   --caller-id             Set the caller-id '?' will be replaced by random digits from 0-9\n"
+	"   --count=N               Set total number of requests to initiate\n"
 	"                           [default=%d]\n"
-	"   --stateless, -s         Set to operate in stateless mode\n"
+	"   --stateless             Set to operate in stateless mode\n"
 	"                           [default: stateful]\n"
-	"   --timeout=SEC, -t       Set client timeout [default=60 sec]\n"
-	"   --window=COUNT, -w      Set maximum outstanding job [default: %d]\n"
-	"   --call-per-second=COUNT, -C     Set maximum amount of call per second [default: 100]\n"
-	"   --interval=SEC, -i      Set the reporting interval of the measurement [default: 1 sec]\n"
+	"   --timeout=SEC           Set client timeout [default=60 sec]\n"
+	"   --window=COUNT          Set maximum outstanding job [default: %d]\n"
+	"   --call-per-second=COUNT Set maximum amount of call per second [default: 100]\n"
+	"   --interval=SEC          Set the reporting interval of the measurement [default: 1 sec]\n"
 	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
 	"\n"
 	"SDP options (client and server):\n"
@@ -1373,22 +1376,26 @@ static void usage(void) {
 	"                           proper SDP negotiation [default: dummy]\n"
 	"\n"
 	"Client and Server options:\n"
-	"   --local-port=PORT, -p   Set local port [default: 5060]\n"
-	"   --use-tcp, -T           Use TCP instead of UDP. Note that when started as\n"
+	"   --local-port=PORT       Set local port [default: 5060]\n"
+	"   --use-tcp               Use TCP instead of UDP. Note that when started as\n"
 	"                           client, you must add ;transport=tcp parameter to URL\n"
 	"                           [default: no]\n"
-	"   --use-tls, -S           Use TLS instead of UDP. Note that when started as\n"
+	"   --use-tls               Use TLS instead of UDP. Note that when started as\n"
 	"                           client, you must add ;transport=tls parameter to URL\n"
 	"                           [default: no]\n"
+	"   --tls-cert              certificate (pem format)\n"
+	"   --tls-key               certificate private key\n"
+	"   --tls-pass              private key password\n"
+        "   --tls-calist            trusted CA list (pem format)\n"
 	"   --thread-count=N        Set number of worker threads [default=1]\n"
 	"   --trying                Send 100/Trying response (server, default no)\n"
 	"   --ringing               Send 180/Ringing response (server, default no)\n"
-	"   --delay=MS, -d          Delay answering call by MS (server, default no)\n"
-	"   --duration=S, -D        Duration of the call before disconnecting in S (client, default 0)\n"
+	"   --delay=MS              Delay answering call by MS (server, default no)\n"
+	"   --duration=S            Duration of the call before disconnecting in S (client, default 0)\n"
 	"\n"
 	"Misc options:\n"
-	"   --help, -h              Display this screen\n"
-	"   --verbose, -v           Verbose logging (put more than once for even more)\n"
+	"   --help                  Display this screen\n"
+	"   --verbose               Verbose logging (put more than once for even more)\n"
 	"\n"
 	"When started as server, voip_perf can be contacted on the following URIs:\n"
 	"   - sip:0@server-addr     To handle requests statelessly.\n"
@@ -1419,28 +1426,39 @@ static int add_proxy_route(const char *s) {
 
 
 static pj_status_t init_options(int argc, char *argv[]) {
-	enum { OPT_THREAD_COUNT = 1, OPT_REAL_SDP, OPT_TRYING, OPT_RINGING };
+	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_STATELESS, OPT_LOCAL_PORT,
+               OPT_METHOD, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
+               OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY,
+               OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
+               OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
+               OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI
+        };
 	struct pj_getopt_option long_options[] = {
-		{ "local-port",	    1, 0, 'p' },
-		{ "caller-id",	    1, 0, 'r' },
-		{ "count",	    1, 0, 'c' },
+		{ "local-port",	    1, 0, OPT_LOCAL_PORT },
+		{ "caller-id",	    1, 0, OPT_CALLERID },
+		{ "count",	    1, 0, OPT_COUNT },
 		{ "thread-count",   1, 0, OPT_THREAD_COUNT },
-		{ "method",	    1, 0, 'm' },
-		{ "proxy",	    1, 0, 'P' },
-		{ "help",	    0, 0, 'h' },
-		{ "stateless",	    0, 0, 's' },
-		{ "timeout",	    1, 0, 't' },
-		{ "interval",	    1, 0, 'i' },
-		{ "call-per-second",	    1, 0, 'C' },
+		{ "method",	    1, 0, OPT_METHOD },
+		{ "proxy",	    1, 0, OPT_PROXY },
+		{ "help",	    0, 0, OPT_HELP },
+		{ "stateless",	    0, 0, OPT_STATELESS },
+		{ "timeout",	    1, 0, OPT_TIMEOUT },
+		{ "interval",	    1, 0, OPT_INTERVAL },
+		{ "call-per-second", 1, 0, OPT_CPS },
 		{ "real-sdp",	    0, 0, OPT_REAL_SDP },
-		{ "verbose",        0, 0, 'v' },
-		{ "use-tcp",	    0, 0, 'T' },
-		{ "use-tls",	    0, 0, 'S' },
-		{ "window",	    1, 0, 'w' },
-		{ "delay",	    1, 0, 'd' },
-		{ "duration",	    1, 0, 'D' },
-		{ "trying",	    0, 0, OPT_TRYING},
-		{ "ringing",	    0, 0, OPT_RINGING},
+		{ "verbose",        0, 0, OPT_VERBOSE },
+		{ "use-tcp",	    0, 0, OPT_USE_TCP },
+		{ "use-tls",	    0, 0, OPT_USE_TLS },
+		{ "window",	    1, 0, OPT_WINDOW },
+		{ "delay",	    1, 0, OPT_DELAY },
+		{ "duration",	    1, 0, OPT_DURATION },
+		{ "trying",	    0, 0, OPT_TRYING },
+		{ "ruri",	    0, 0, OPT_RURI },
+		{ "ringing",	    0, 0, OPT_RINGING },
+		{ "tls-cert",	    1, 0, OPT_TLS_CERT },
+		{ "tls-key",	    1, 0, OPT_TLS_KEY },
+		{ "tls-pass",	    1, 0, OPT_TLS_PASS },
+		{ "tls-calist",	    1, 0, OPT_TLS_CALIST },
 		{ NULL, 0, 0, 0 },
 	};
 
@@ -1461,21 +1479,21 @@ static pj_status_t init_options(int argc, char *argv[]) {
 
 	/* Parse options */
 	pj_optind = 0;
-	while((c=pj_getopt_long(argc,argv, "p:P:r:c:m:t:w:d:D:C:i:hsv",
-			    long_options, &option_index))!=-1) 
+	while((c=pj_getopt_long(argc,argv, "", long_options, &option_index))!=-1) 
 	{
 		switch (c) {
-		case 'p':
+		case OPT_LOCAL_PORT:
 			app.local_port = my_atoi(pj_optarg);
 			if (app.local_port < 0 || app.local_port > 65535) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --local-port %s", pj_optarg));
 				return -1;
 			}
+			PJ_LOG(3,(THIS_FILE,"local_port[%d]", app.local_port));
 			break;
-		case 'P':
+		case OPT_PROXY:
 			add_proxy_route(pj_optarg);
 			break;
-		case 'c':
+		case OPT_COUNT:
 			app.client.job_count = my_atoi(pj_optarg);
 			if (app.client.job_count > pjsip_cfg()->tsx.max_count)
 				PJ_LOG(3,(THIS_FILE,
@@ -1490,70 +1508,94 @@ static pj_status_t init_options(int argc, char *argv[]) {
 				return -1;
 			}
 			break;
-		case 'm':
+		case OPT_METHOD:
 			{
 			pj_str_t temp = pj_str((char*)pj_optarg);
 			pjsip_method_init_np(&app.client.method, &temp);
+			PJ_LOG(3,(THIS_FILE, "method:[%s]", temp.ptr ));
 			}
 			break;
-		case 'h':
+		case OPT_HELP:
 			usage();
 			return -1;
-		case 's':
+			break;
+		case OPT_STATELESS:
 			app.client.stateless = PJ_TRUE;
 			break;
-		case 'r':
+		case OPT_TLS_CERT:
+			{
+			app.tls.cert = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "tls cert:[%s][%d]", app.tls.cert.ptr, app.tls.cert.slen ));
+			}
+			break;
+		case OPT_TLS_KEY:
+			app.tls.key = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "tls key:[%s][%d]", app.tls.key.ptr, app.tls.key.slen ));
+			break;
+		case OPT_TLS_PASS:
+			app.tls.pass = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "tls pass:[x][%d]", app.tls.pass.slen ));
+			break;
+		case OPT_TLS_CALIST:
+			app.tls.calist = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "tls ca list:[%s][%d]", app.tls.calist.ptr, app.tls.calist.slen ));
+			break;
+		case OPT_CALLERID:
+			{
 			app.client.callerid = pj_str((char*)pj_optarg);
 			PJ_LOG(3,(THIS_FILE, "callerid:[%s][%d]", app.client.callerid.ptr, app.client.callerid.slen ));
+			}
 			break;
 		case OPT_REAL_SDP:
 			app.real_sdp = 1;
 			break;
-		case 'v':
+		case OPT_VERBOSE:
 			app.log_level++;
 			break;
-		case 't':
+		case OPT_TIMEOUT:
 			app.client.timeout = my_atoi(pj_optarg);
 			if (app.client.timeout > 86400) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --timeout %s", pj_optarg));
 				return -1;
 			}
 			break;
-		case 'i':
+		case OPT_INTERVAL:
 			app.latency_metrics_period_duration = my_atoi(pj_optarg);
 			if (app.latency_metrics_period_duration < 1) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
 				return -1;
 			}
 			break;
-		case 'C':
+		case OPT_CPS:
 			app.client.cps = my_atoi(pj_optarg);
 			if (app.client.cps < 1 || app.client.cps >= 10000) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --call-per-second %s", pj_optarg));
 				return -1;
 			}
 			break;
-		case 'w':
+		case OPT_WINDOW:
 			app.client.job_window = my_atoi(pj_optarg);
 			if (app.client.job_window <= 0) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --window %s", pj_optarg));
 				return -1;
 			}
 			break;
-		case 'T':
+		case OPT_USE_TCP:
+			PJ_LOG(3,(THIS_FILE, "using tcp transport"));
 			app.use_tcp = PJ_TRUE;
 			break;
-		case 'S':
+		case OPT_USE_TLS:
+			PJ_LOG(3,(THIS_FILE, "using tls transport"));
 			app.use_tls = PJ_TRUE;
 			break;
-		case 'd':
+		case OPT_DELAY:
 			app.server.delay = my_atoi(pj_optarg);
 			if (app.server.delay > 36000) {
 			PJ_LOG(3,(THIS_FILE, "I think --delay %s is too long", pj_optarg));
 				return -1;
 			}
 			break;
-		case 'D':
+		case OPT_DURATION:
 			app.client.call_duration = my_atoi(pj_optarg);
 			if (app.client.call_duration > 3600) {
 			PJ_LOG(3,(THIS_FILE, "I think --duration %s is too long", pj_optarg));
@@ -1771,7 +1813,7 @@ static int client_thread(void *arg) {
 				app.cps_period.cpms = cps_remaining/(float)cps_period_remaining_ms;
 				if (app.cps_period.cpms < 0)
 					app.cps_period.cpms = 0;
-				PJ_LOG(6, (THIS_FILE, "cps_period.calls_count_period[%d/%d] elapsed[%dms] new_cpms[%.2f] [%d/%d]",
+				PJ_LOG(4, (THIS_FILE, "cps_period.calls_count_period[%d/%d] elapsed[%dms] new_cpms[%.2f] [%d/%d]",
 								app.cps_period.call_count, app.client.cps,
                                                                 (int)now.msec,
                                                                 app.cps_period.cpms, cps_remaining, cps_period_remaining_ms));
