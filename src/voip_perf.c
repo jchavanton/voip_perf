@@ -188,6 +188,7 @@ struct app {
 		struct srv_state cur_state;
 	} server;
 
+	pj_str_t latency_fn;
 	struct {
 		pj_str_t cert;
 		pj_str_t key;
@@ -206,7 +207,6 @@ struct app {
 } app;
 
 static FILE *log_stats_output = NULL;
-static const char *stats_fn = "./voip_perf_stats.log";
 
 struct call {
 	pjsip_inv_session *inv;
@@ -1369,7 +1369,7 @@ static void usage(void) {
 	"   --window=COUNT          Set maximum outstanding job [default: %d]\n"
 	"   --call-per-second=COUNT Set maximum amount of call per second [default: 100]\n"
 	"   --interval=SEC          Set the reporting interval of the measurement [default: 1 sec]\n"
-	"                           csv measurement file can be found in /tmp/voip_perf_stats.log\n"
+	"   --latency_file=./latency.csv  csv measurement output file\n"
 	"\n"
 	"SDP options (client and server):\n"
 	"   --real-sdp              Generate real SDP from pjmedia, and also perform\n"
@@ -1386,7 +1386,7 @@ static void usage(void) {
 	"   --tls-cert              certificate (pem format)\n"
 	"   --tls-key               certificate private key\n"
 	"   --tls-pass              private key password\n"
-        "   --tls-calist            trusted CA list (pem format)\n"
+	"   --tls-calist            trusted CA list (pem format)\n"
 	"   --thread-count=N        Set number of worker threads [default=1]\n"
 	"   --trying                Send 100/Trying response (server, default no)\n"
 	"   --ringing               Send 180/Ringing response (server, default no)\n"
@@ -1427,7 +1427,7 @@ static int add_proxy_route(const char *s) {
 
 static pj_status_t init_options(int argc, char *argv[]) {
 	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_STATELESS, OPT_LOCAL_PORT,
-               OPT_METHOD, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
+               OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
                OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
                OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
@@ -1439,6 +1439,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "count",	    1, 0, OPT_COUNT },
 		{ "thread-count",   1, 0, OPT_THREAD_COUNT },
 		{ "method",	    1, 0, OPT_METHOD },
+		{ "latency_file",	    1, 0, OPT_LATENCY_FN },
 		{ "proxy",	    1, 0, OPT_PROXY },
 		{ "help",	    0, 0, OPT_HELP },
 		{ "stateless",	    0, 0, OPT_STATELESS },
@@ -1476,6 +1477,8 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.latency_metrics_period_duration = 0;
 	app.log_level = 3;
 	pj_list_init(&app.route_set);
+	#define LATENCY_DEFAULT_FN "./latency.csv"
+	app.latency_fn = pj_str(LATENCY_DEFAULT_FN);
 
 	/* Parse options */
 	pj_optind = 0;
@@ -1513,6 +1516,12 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			pj_str_t temp = pj_str((char*)pj_optarg);
 			pjsip_method_init_np(&app.client.method, &temp);
 			PJ_LOG(3,(THIS_FILE, "method:[%s]", temp.ptr ));
+			}
+			break;
+		case OPT_LATENCY_FN:
+			{
+			app.latency_fn = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "latency file name:[%s]", app.latency_fn.ptr));
 			}
 			break;
 		case OPT_HELP:
@@ -2053,7 +2062,7 @@ int main(int argc, char *argv[]) {
 		app_perror(THIS_FILE, "unable to create lock", status);
 	}
 	pj_gettimeofday(&app.latency_metrics_period_start);
-	log_stats_output = fopen(stats_fn, "w+");
+	log_stats_output = fopen(app.latency_fn.ptr, "w+");
 	fflush(log_stats_output);
 	fprintf(log_stats_output,"TIMESTAMP,METHOD,100-CNT,100-AVG,100-STD,100-MAX,180-CNT,180-AVG,180-STD,180-MAX,200-CNT,200-AVG,200-STD,200-MAX\n");
 
