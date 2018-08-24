@@ -64,6 +64,7 @@
 #include <stdio.h>
 
 #include "custom_headers.h"
+#include<signal.h>
 
 // random
 #include <time.h>
@@ -2008,6 +2009,23 @@ static void write_report(const char *msg)
 #endif
 }
 
+// Handler for SIGINT, caused by
+// Ctrl-C at keyboard
+void handle_sigint(int sig) {
+	printf("Caught signal %d\n", sig);
+	fflush(stdout);
+
+	//app.thread_quit = PJ_TRUE;
+	//int i;
+	//for (i=0; i<app.thread_count; ++i) {
+	//	pj_thread_join(app.thread[i]);
+	//	app.thread[i] = NULL;
+	//}
+	//puts("");
+	//destroy_app();
+	//printf("Cleaned %d\n", sig);
+}
+
 
 int main(int argc, char *argv[]) {
 	static char report[1024];
@@ -2180,19 +2198,10 @@ int main(int argc, char *argv[]) {
 		    }
 		}
 
-		puts("\nPress <ENTER> to quit\n");
-		fflush(stdout);
-		unused = fgets(s, sizeof(s), stdin);
-		PJ_UNUSED_ARG(unused);
-
-		app.thread_quit = PJ_TRUE;
-		for (i=0; i<app.thread_count; ++i) {
-		    pj_thread_join(app.thread[i]);
-		    app.thread[i] = NULL;
-		}
-		puts("");
+		puts("\nPress <CTLR_C> to quit\n");
+		//signal(SIGINT, handle_sigint);
+		while(1);
 	}
-	destroy_app();
 	return 0;
 }
 
