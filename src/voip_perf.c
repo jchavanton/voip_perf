@@ -2014,217 +2014,185 @@ int main(int argc, char *argv[]) {
 	printf("PJSIP Performance Measurement Tool v%s\n (c)2006 pjsip.org\n\n", PJ_VERSION);
 
 	srand(time(NULL));
-    if (create_app() != 0)
-	return 1;
+	if (create_app() != 0) return 1;
+	if (init_options(argc, argv) != 0) return 1;
+	if (init_sip() != 0) return 1;
+	if (init_media() != 0) return 1;
+	pj_log_set_level(app.log_level);
 
-    if (init_options(argc, argv) != 0)
-	return 1;
-
-    if (init_sip() != 0)
-	return 1;
-
-    if (init_media() != 0)
-	return 1;
-
-    pj_log_set_level(app.log_level);
-
-    if (app.log_level > 4) {
-	pjsip_endpt_register_module(app.sip_endpt, &msg_logger);
-    }
-
-
-
-    /* Misc infos */
-    if (app.client.dst_uri.slen != 0) {
-	if (app.client.method.id == PJSIP_INVITE_METHOD) {
-	    if (app.client.stateless) {
-		PJ_LOG(3,(THIS_FILE, 
-			  "Info: --stateless option makes no sense for INVITE,"
-			  " ignored."));
-	    }
+	if (app.log_level > 4) {
+		pjsip_endpt_register_module(app.sip_endpt, &msg_logger);
 	}
 
-    }
-
-    if (app.client.dst_uri.slen) {
-	/* Client mode */
-	pj_status_t status;
-	char test_type[64];
-	unsigned msec_req, msec_res;
-	unsigned i;
-
-	status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
-	if (status != PJ_SUCCESS) {
-		app_perror(THIS_FILE, "unable to create lock", status);
+	/* Misc infos */
+	if (app.client.dst_uri.slen != 0) {
+		if (app.client.method.id == PJSIP_INVITE_METHOD) {
+			if (app.client.stateless) {
+				PJ_LOG(3,(THIS_FILE, "Info: --stateless option makes no sense for INVITE, ignored."));
+			}
+		}
 	}
-	status = pj_lock_create_simple_mutex(app.pool, "cps_lock", &app.cps_lock);
-	if (status != PJ_SUCCESS) {
-		app_perror(THIS_FILE, "unable to create lock", status);
-	}
-	pj_gettimeofday(&app.latency_metrics_period_start);
-	log_stats_output = fopen(app.latency_fn.ptr, "w+");
-	fflush(log_stats_output);
-	fprintf(log_stats_output,"TIMESTAMP,METHOD,100-CNT,100-AVG,100-STD,100-MAX,180-CNT,180-AVG,180-STD,180-MAX,200-CNT,200-AVG,200-STD,200-MAX\n");
 
-	/* Get the job name */
-	if (app.client.method.id == PJSIP_INVITE_METHOD) {
-	    pj_ansi_strcpy(test_type, "INVITE calls");
-	} else if (app.client.stateless) {
-	    pj_ansi_sprintf(test_type, "stateless %.*s requests",
-			    (int)app.client.method.name.slen,
-			    app.client.method.name.ptr);
+	if (app.client.dst_uri.slen) {
+		/* Client mode */
+		pj_status_t status;
+		char test_type[64];
+		unsigned msec_req, msec_res;
+		unsigned i;
+
+		status = pj_lock_create_simple_mutex(app.pool, "stats_lock", &app.stats_lock);
+		if (status != PJ_SUCCESS) {
+			app_perror(THIS_FILE, "unable to create lock", status);
+		}
+		status = pj_lock_create_simple_mutex(app.pool, "cps_lock", &app.cps_lock);
+		if (status != PJ_SUCCESS) {
+			app_perror(THIS_FILE, "unable to create lock", status);
+		}
+		pj_gettimeofday(&app.latency_metrics_period_start);
+		log_stats_output = fopen(app.latency_fn.ptr, "w+");
+		fflush(log_stats_output);
+		fprintf(log_stats_output,"TIMESTAMP,METHOD,100-CNT,100-AVG,100-STD,100-MAX,180-CNT,180-AVG,180-STD,180-MAX,200-CNT,200-AVG,200-STD,200-MAX\n");
+
+		/* Get the job name */
+		if (app.client.method.id == PJSIP_INVITE_METHOD) {
+		    pj_ansi_strcpy(test_type, "INVITE calls");
+		} else if (app.client.stateless) {
+		    pj_ansi_sprintf(test_type, "stateless %.*s requests",
+				    (int)app.client.method.name.slen,
+				    app.client.method.name.ptr);
+		} else {
+		    pj_ansi_sprintf(test_type, "stateful %.*s requests",
+				    (int)app.client.method.name.slen,
+				    app.client.method.name.ptr);
+		}
+
+		// Sending 1 INVITE calls to 'sip:0@147.75.69.1:5070' with 1000 maximum outstanding jobs, please wait..
+		printf("Sending %d %s to '%.*s' with %d maximum outstanding jobs, please wait..\n", 
+			  app.client.job_count, test_type,
+			  (int)app.client.dst_uri.slen, app.client.dst_uri.ptr,
+			  app.client.job_window);
+
+		for (i=0; i<app.thread_count; ++i) {
+			status = pj_thread_create(app.pool, NULL, &client_thread, (void*)(pj_ssize_t)i, 0, 0, &app.thread[i]);
+			if (status != PJ_SUCCESS) {
+				app_perror(THIS_FILE, "Unable to create thread", status);
+				return 1;
+			}
+		}
+
+		for (i=0; i<app.thread_count; ++i) {
+			pj_thread_join(app.thread[i]);
+			app.thread[i] = NULL;
+		}
+
+		metric_check_period(PJ_TRUE);
+
+		if (app.client.last_completion.sec) {
+			pj_time_val duration;
+			duration = app.client.last_completion;
+			PJ_TIME_VAL_SUB(duration, app.client.first_request);
+			msec_res = PJ_TIME_VAL_MSEC(duration);
+		} else {
+			msec_res = app.client.timeout * 1000;
+		}
+
+		if (msec_res == 0) msec_res = 1;
+		if (app.client.requests_sent.sec) {
+			pj_time_val duration;
+			duration = app.client.requests_sent;
+			PJ_TIME_VAL_SUB(duration, app.client.first_request);
+			msec_req = PJ_TIME_VAL_MSEC(duration);
+		} else {
+			msec_req = app.client.timeout * 1000;
+		}
+
+		if (msec_req == 0) msec_req = 1;
+		if (app.client.job_submitted < app.client.job_count) puts("\ntimed-out!\n");
+		else puts("\ndone.\n");
+
+		pj_ansi_snprintf(
+		    report, sizeof(report),
+		    "Total %d %s sent in %d ms at rate of %d/sec\n"
+		    "Total %d responses received in %d ms at rate of %d/sec:",
+		    app.client.job_submitted, test_type, msec_req, 
+		    app.client.job_submitted * 1000 / msec_req,
+		    app.client.total_responses, msec_res,
+		    app.client.total_responses*1000/msec_res);
+		write_report(report);
+
+		/* Print detailed response code received */
+		pj_ansi_sprintf(report, "\nDetailed responses received:");
+		write_report(report);
+
+		for (i=0; i<PJ_ARRAY_SIZE(app.client.response_codes); ++i) {
+			const pj_str_t *reason;
+			if (app.client.response_codes[i] == 0) continue;
+			reason = pjsip_get_status_text(i);
+			pj_ansi_snprintf( report, sizeof(report),
+				      " - %d responses:  %7d     (%.*s)",
+				      i, app.client.response_codes[i],
+				      (int)reason->slen, reason->ptr);
+			write_report(report);
+		}
+
+		/* Total responses and rate */
+		pj_ansi_snprintf( report, sizeof(report),
+		    "                    ------\n"
+		    " TOTAL responses:  %7d (rate=%d/sec)\n",
+		    app.client.total_responses,
+		    app.client.total_responses*1000/msec_res);
+
+		write_report(report);
+		pj_ansi_sprintf(report, "Maximum outstanding job: %d", app.client.stat_max_window);
+		write_report(report);
+
 	} else {
-	    pj_ansi_sprintf(test_type, "stateful %.*s requests",
-			    (int)app.client.method.name.slen,
-			    app.client.method.name.ptr);
+		/* Server mode */
+		char s[10], *unused;
+		pj_status_t status;
+		unsigned i;
+		puts("voip_perf started in server-mode");
+		printf("Receiving requests on the following URIs:\n"
+		       "  sip:0@%.*s:%d%s    for stateless handling\n"
+		       "  sip:1@%.*s:%d%s    for stateful handling\n"
+		       "  sip:2@%.*s:%d%s    for call handling\n",
+		       (int)app.local_addr.slen,
+		       app.local_addr.ptr,
+		       app.local_port,
+		       (app.use_tcp ? ";transport=tcp" : ""),
+		       (int)app.local_addr.slen,
+		       app.local_addr.ptr,
+		       app.local_port,
+		       (app.use_tcp ? ";transport=tcp" : ""),
+		       (int)app.local_addr.slen,
+		       app.local_addr.ptr,
+		       app.local_port,
+		       (app.use_tcp ? ";transport=tcp" : ""));
+		printf("INVITE with non-matching user part will be handled call-statefully\n");
+
+		for (i=0; i<app.thread_count; ++i) {
+		    status = pj_thread_create(app.pool, NULL, &server_thread, 
+					      (void*)(pj_ssize_t)i, 0, 0, 
+					      &app.thread[i]);
+		    if (status != PJ_SUCCESS) {
+			app_perror(THIS_FILE, "Unable to create thread", status);
+			return 1;
+		    }
+		}
+
+		puts("\nPress <ENTER> to quit\n");
+		fflush(stdout);
+		unused = fgets(s, sizeof(s), stdin);
+		PJ_UNUSED_ARG(unused);
+
+		app.thread_quit = PJ_TRUE;
+		for (i=0; i<app.thread_count; ++i) {
+		    pj_thread_join(app.thread[i]);
+		    app.thread[i] = NULL;
+		}
+		puts("");
 	}
-	
-	// Sending 1 INVITE calls to 'sip:0@147.75.69.1:5070' with 1000 maximum outstanding jobs, please wait..
-	printf("Sending %d %s to '%.*s' with %d maximum outstanding jobs, please wait..\n", 
-		  app.client.job_count, test_type,
-		  (int)app.client.dst_uri.slen, app.client.dst_uri.ptr,
-		  app.client.job_window);
-
-	for (i=0; i<app.thread_count; ++i) {
-	    status = pj_thread_create(app.pool, NULL, &client_thread, 
-				      (void*)(pj_ssize_t)i, 0, 0, 
-				      &app.thread[i]);
-	    if (status != PJ_SUCCESS) {
-		app_perror(THIS_FILE, "Unable to create thread", status);
-		return 1;
-	    }
-	}
-
-	for (i=0; i<app.thread_count; ++i) {
-	    pj_thread_join(app.thread[i]);
-	    app.thread[i] = NULL;
-	}
-
-	metric_check_period(PJ_TRUE);
-
-	if (app.client.last_completion.sec) {
-	    pj_time_val duration;
-	    duration = app.client.last_completion;
-	    PJ_TIME_VAL_SUB(duration, app.client.first_request);
-	    msec_res = PJ_TIME_VAL_MSEC(duration);
-	} else {
-	    msec_res = app.client.timeout * 1000;
-	}
-
-	if (msec_res == 0) msec_res = 1;
-
-	if (app.client.requests_sent.sec) {
-	    pj_time_val duration;
-	    duration = app.client.requests_sent;
-	    PJ_TIME_VAL_SUB(duration, app.client.first_request);
-	    msec_req = PJ_TIME_VAL_MSEC(duration);
-	} else {
-	    msec_req = app.client.timeout * 1000;
-	}
-
-	if (msec_req == 0) msec_req = 1;
-
-	if (app.client.job_submitted < app.client.job_count)
-	    puts("\ntimed-out!\n");
-	else
-	    puts("\ndone.\n");
-
-
-	pj_ansi_snprintf(
-	    report, sizeof(report),
-	    "Total %d %s sent in %d ms at rate of %d/sec\n"
-	    "Total %d responses received in %d ms at rate of %d/sec:",
-	    app.client.job_submitted, test_type, msec_req, 
-	    app.client.job_submitted * 1000 / msec_req,
-	    app.client.total_responses, msec_res,
-	    app.client.total_responses*1000/msec_res);
-	write_report(report);
-
-	/* Print detailed response code received */
-	pj_ansi_sprintf(report, "\nDetailed responses received:");
-	write_report(report);
-
-	for (i=0; i<PJ_ARRAY_SIZE(app.client.response_codes); ++i) {
-	    const pj_str_t *reason;
-
-	    if (app.client.response_codes[i] == 0)
-		continue;
-
-	    reason = pjsip_get_status_text(i);
-	    pj_ansi_snprintf( report, sizeof(report),
-			      " - %d responses:  %7d     (%.*s)",
-			      i, app.client.response_codes[i],
-			      (int)reason->slen, reason->ptr);
-	    write_report(report);
-	}
-
-	/* Total responses and rate */
-	pj_ansi_snprintf( report, sizeof(report),
-	    "                    ------\n"
-	    " TOTAL responses:  %7d (rate=%d/sec)\n",
-	    app.client.total_responses, 
-	    app.client.total_responses*1000/msec_res);
-
-	write_report(report);
-
-	pj_ansi_sprintf(report, "Maximum outstanding job: %d", 
-			app.client.stat_max_window);
-
-	write_report(report);
-
-    } else {
-	/* Server mode */
-	char s[10], *unused;
-	pj_status_t status;
-	unsigned i;
-
-	puts("voip_perf started in server-mode");
-
-	printf("Receiving requests on the following URIs:\n"
-	       "  sip:0@%.*s:%d%s    for stateless handling\n"
-	       "  sip:1@%.*s:%d%s    for stateful handling\n"
-	       "  sip:2@%.*s:%d%s    for call handling\n",
-	       (int)app.local_addr.slen,
-	       app.local_addr.ptr,
-	       app.local_port,
-	       (app.use_tcp ? ";transport=tcp" : ""),
-	       (int)app.local_addr.slen,
-	       app.local_addr.ptr,
-	       app.local_port,
-	       (app.use_tcp ? ";transport=tcp" : ""),
-	       (int)app.local_addr.slen,
-	       app.local_addr.ptr,
-	       app.local_port,
-	       (app.use_tcp ? ";transport=tcp" : ""));
-	printf("INVITE with non-matching user part will be handled call-statefully\n");
-
-	for (i=0; i<app.thread_count; ++i) {
-	    status = pj_thread_create(app.pool, NULL, &server_thread, 
-				      (void*)(pj_ssize_t)i, 0, 0, 
-				      &app.thread[i]);
-	    if (status != PJ_SUCCESS) {
-		app_perror(THIS_FILE, "Unable to create thread", status);
-		return 1;
-	    }
-	}
-
-	puts("\nPress <ENTER> to quit\n");
-	fflush(stdout);
-	unused = fgets(s, sizeof(s), stdin);
-	PJ_UNUSED_ARG(unused);
-
-	app.thread_quit = PJ_TRUE;
-	for (i=0; i<app.thread_count; ++i) {
-	    pj_thread_join(app.thread[i]);
-	    app.thread[i] = NULL;
-	}
-
-	puts("");
-    }
-
-
-    destroy_app();
-
-    return 0;
+	destroy_app();
+	return 0;
 }
 
