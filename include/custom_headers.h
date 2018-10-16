@@ -1,5 +1,4 @@
-
-
 const char* HDR[] = {
-	"X-Extra", "value",
+    "X-Foo", "Bar",
 };
+
