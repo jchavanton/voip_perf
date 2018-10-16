@@ -1675,7 +1675,6 @@ static void tsx_completion_cb(void *token, pjsip_event *event) {
 	pjsip_transaction *tsx;
 	PJ_UNUSED_ARG(token);
 
-	PJ_LOG(1, (THIS_FILE, "tsx_completion_cb"));
 	if (event->type != PJSIP_EVENT_TSX_STATE)
 		return;
 
@@ -1705,7 +1704,6 @@ static void tsx_completion_cb(void *token, pjsip_event *event) {
 static pj_status_t submit_job(void) {
 	pjsip_tx_data *tdata;
 	pj_status_t status;
-	PJ_LOG(1, (THIS_FILE, "submit_job"));
 	status = pjsip_endpt_create_request(app.sip_endpt, &app.client.method,
 					&app.client.dst_uri, &app.local_uri,
 					&app.client.dst_uri, &app.local_contact,
