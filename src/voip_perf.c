@@ -62,6 +62,7 @@
 #include <pjlib-util.h>
 #include <pjlib.h>
 #include <stdio.h>
+#include <jansson.h>
 
 #include "custom_headers.h"
 #include<signal.h>
@@ -127,6 +128,12 @@ typedef struct  {
 	//float first_average;
 } voip_perf_metric_t;
 
+typedef struct responses {
+	int code;
+	pj_str_t reason;
+	int prob; // probability in percentage
+} responses_t;
+
 struct srv_state {
 	unsigned stateless_cnt;
 	unsigned stateful_cnt;
@@ -187,6 +194,8 @@ struct app {
 		unsigned delay;
 		struct srv_state prev_state;
 		struct srv_state cur_state;
+		responses_t *responses;
+		int responses_count;
 	} server;
 
 	pj_str_t latency_fn;
@@ -371,7 +380,7 @@ static pjsip_module mod_call_server = {
     NULL,			    /* on_tsx_state()		*/
 };
 
-static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, int code, pj_bool_t *has_initial) {
+static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, int code, pj_str_t *reason, pj_bool_t *has_initial) {
 	pjsip_tx_data *tdata;
 	pj_status_t status;
 
@@ -415,7 +424,7 @@ static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 	pj_bool_t has_initial = PJ_TRUE;
 	PJ_UNUSED_ARG(h);
 	entry->id = 0;
-	send_response(call->inv, NULL, 200, &has_initial);
+	send_response(call->inv, NULL, 200, NULL, &has_initial);
 }
 
 static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
@@ -502,14 +511,29 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 
 	/* Send 100/Trying if needed */
 	if (app.server.send_trying) {
-		status = send_response(call->inv, rdata, 100, &has_initial);
+		status = send_response(call->inv, rdata, 100, NULL, &has_initial);
 		if (status != PJ_SUCCESS)
 		return PJ_TRUE;
 	}
 
+	/* json config responses */
+	int i;
+	int x = rand()%100;
+	int y = 0;
+	for (i=0;i< app.server.responses_count ;i++) {
+		printf("%d %s [%d/100]\n", app.server.responses[i].code, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
+		if (x < (app.server.responses[i].prob+y)) {
+			status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
+			if (status != PJ_SUCCESS)
+				return PJ_TRUE;
+			return PJ_TRUE;
+		}
+		y += app.server.responses[i].prob;
+	}
+
 	/* Send 180/Ringing if needed */
 	if (app.server.send_ringing) {
-		status = send_response(call->inv, rdata, 180, &has_initial);
+		status = send_response(call->inv, rdata, 180, NULL, &has_initial);
 		if (status != PJ_SUCCESS)
 			return PJ_TRUE;
 	}
@@ -526,7 +550,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		pjsip_endpt_schedule_timer(app.sip_endpt, &call->ans_timer, &delay);
 	} else {
 		// Send the 200 response immediately
-		status = send_response(call->inv, rdata, 200, &has_initial);
+		status = send_response(call->inv, rdata, 200, NULL, &has_initial);
 		PJ_ASSERT_ON_FAIL(status == PJ_SUCCESS, return PJ_TRUE);
 	}
 
@@ -1426,6 +1450,85 @@ static int add_proxy_route(const char *s) {
 }
 
 
+static void load_json_config_replies (json_t *responses) {
+	int i=0;
+	app.server.responses_count = (int)json_array_size(responses);
+	app.server.responses = pj_pool_zalloc(app.pool, sizeof(responses_t) * app.server.responses_count);
+	responses_t *rep = app.server.responses;
+	for (i=0;i< app.server.responses_count ;i++) {
+		json_t *e = json_array_get(responses, i);
+		if (e) {
+			void *iter = json_object_iter(e);
+			while (iter) {
+				const char *key = json_object_iter_key(iter);
+				json_t *v = json_object_iter_value(iter);
+				if (strcmp(key, "code") == 0) {
+					if (!json_is_integer(v)) goto err;
+					rep->code = (int)json_integer_value(v);
+				} else if (strcmp(key, "reason") == 0) {
+					if (!json_is_string(v)) goto err;
+					pj_strdup2(app.pool, &rep->reason, json_string_value(v));
+				} else if (strcmp(key, "probability") == 0) {
+					if (!json_is_real(v)) goto err;
+					rep->prob = json_real_value(v)*100;
+					if (rep->prob > 100) rep->prob = 100;
+					if (rep->prob < 1) rep->prob = 1;
+				}
+				iter = json_object_iter_next(e, iter);
+			}
+			printf("%d %s [%d/100]\n", rep->code, rep->reason.ptr, rep->prob);
+			rep++;
+		}
+	}
+	return;
+err:
+	app.server.responses_count = 0;
+	printf("[%s] error loading config\n", __FUNCTION__);
+}
+
+static void load_json_config () {
+	json_t *json;
+	json_error_t error;
+
+	json = json_load_file("./conf.json", 0, &error);
+	if(!json) {
+		printf("can not load json config\n");
+		/* the error variable contains error information */
+	} else {
+		const char *key;
+		json_t *value;
+		void *iter = json_object_iter(json);
+		while(iter) {
+			key = json_object_iter_key(iter);
+			value = json_object_iter_value(iter);
+			if (json_is_object(value)) {
+				printf("[%s][object]\n", key);
+			} else if (json_is_array(value)) {
+				int i=0;
+				if (strcmp(key, "server") == 0) {
+					printf("server params\n");
+					for (i=0;i<(int)json_array_size(value);i++) {
+						json_t *e = json_array_get(value, i);
+						if (e) {
+							void *server_iter = json_object_iter(e);
+							const char *server_key = json_object_iter_key(server_iter);
+							json_t *server_value = json_object_iter_value(server_iter);
+							if (strcmp(server_key, "response") == 0) {
+								if (json_is_array(server_value)) load_json_config_replies(server_value);
+							}
+						}
+					}
+				} else if (strcmp(key, "client") == 0)  {
+					printf("client params\n");
+				}
+				printf("[%s][array]size[%d]\n", key, (int)json_array_size(value));
+			}
+			/* use key and value ... */
+			iter = json_object_iter_next(json, iter);
+		}
+	}
+}
+
 static pj_status_t init_options(int argc, char *argv[]) {
 	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_STATELESS, OPT_LOCAL_PORT,
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
@@ -1477,6 +1580,8 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.client.timeout = 60;
 	app.latency_metrics_period_duration = 0;
 	app.log_level = 3;
+	app.server.responses = NULL;
+	app.server.responses_count = 0;
 	pj_list_init(&app.route_set);
 	#define LATENCY_DEFAULT_FN "./latency.csv"
 	app.latency_fn = pj_str(LATENCY_DEFAULT_FN);
@@ -2032,6 +2137,7 @@ int main(int argc, char *argv[]) {
 	srand(time(NULL));
 	if (create_app() != 0) return 1;
 	if (init_options(argc, argv) != 0) return 1;
+	load_json_config();
 	if (init_sip() != 0) return 1;
 	if (init_media() != 0) return 1;
 	pj_log_set_level(app.log_level);
