@@ -371,7 +371,7 @@ static pjsip_module mod_call_server = {
     NULL,			    /* on_tsx_state()		*/
 };
 
-static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, int code, pj_bool_t *has_initial) {
+static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, int code, pj_str_t *reason, pj_bool_t *has_initial) {
 	pjsip_tx_data *tdata;
 	pj_status_t status;
 
@@ -415,7 +415,7 @@ static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 	pj_bool_t has_initial = PJ_TRUE;
 	PJ_UNUSED_ARG(h);
 	entry->id = 0;
-	send_response(call->inv, NULL, 200, &has_initial);
+	send_response(call->inv, NULL, 200, NULL, &has_initial);
 }
 
 static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
@@ -502,14 +502,21 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 
 	/* Send 100/Trying if needed */
 	if (app.server.send_trying) {
-		status = send_response(call->inv, rdata, 100, &has_initial);
+		status = send_response(call->inv, rdata, 100, NULL, &has_initial);
 		if (status != PJ_SUCCESS)
 		return PJ_TRUE;
 	}
 
+	/* Send 604/Ringing if needed */
+	if (app.server.send_ringing) {
+		status = send_response(call->inv, rdata, 180, NULL, &has_initial);
+		if (status != PJ_SUCCESS)
+			return PJ_TRUE;
+	}
+
 	/* Send 180/Ringing if needed */
 	if (app.server.send_ringing) {
-		status = send_response(call->inv, rdata, 180, &has_initial);
+		status = send_response(call->inv, rdata, 180, NULL, &has_initial);
 		if (status != PJ_SUCCESS)
 			return PJ_TRUE;
 	}
@@ -526,7 +533,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		pjsip_endpt_schedule_timer(app.sip_endpt, &call->ans_timer, &delay);
 	} else {
 		// Send the 200 response immediately
-		status = send_response(call->inv, rdata, 200, &has_initial);
+		status = send_response(call->inv, rdata, 200, NULL, &has_initial);
 		PJ_ASSERT_ON_FAIL(status == PJ_SUCCESS, return PJ_TRUE);
 	}
 
