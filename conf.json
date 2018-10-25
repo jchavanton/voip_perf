@@ -2,9 +2,17 @@
 	"server" : [
 		{
 			"response" : [
+				{ "code" : 404,
+				  "reason" : "not found",
+				  "probability" : 0.2
+				},
 				{ "code" : 604,
 				  "reason" : "not available anywhere",
-				  "probability" : 1.0
+				  "probability" : 0.2
+				},
+				{ "code" : 503,
+				  "reason" : "internal server error",
+				  "probability" : 0.2
 				}
 			]
 		}
