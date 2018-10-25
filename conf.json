@@ -1,0 +1,14 @@
+{
+	"server" : [
+		{
+			"response" : [
+				{ "code" : 604,
+				  "reason" : "not available anywhere",
+				  "probability" : 1.0
+				}
+			]
+		}
+	],
+	"client" : [
+	]
+}
