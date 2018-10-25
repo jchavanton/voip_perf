@@ -518,16 +518,17 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 
 	/* json config responses */
 	int i;
+	int x = rand()%100;
+	int y = 0;
 	for (i=0;i< app.server.responses_count ;i++) {
-
 		printf("%d %s [%d/100]\n", app.server.responses[i].code, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
-		int x = rand()%100;
-		if (x < app.server.responses[i].prob) {
+		if (x < (app.server.responses[i].prob+y)) {
 			status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
 			if (status != PJ_SUCCESS)
 				return PJ_TRUE;
 			return PJ_TRUE;
 		}
+		y += app.server.responses[i].prob;
 	}
 
 	/* Send 180/Ringing if needed */
