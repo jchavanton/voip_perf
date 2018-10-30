@@ -1491,15 +1491,9 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
-static void load_json_config_extra_headers (json_t *extra_headers) {
+static void load_json_config_extra_headers (json_t *extra_headers_json) {
 	int i=0;
-       // pjsip_generic_string_hdr *h;
-       // h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
-       // pj_list_push_back(&dlg->inv_hdr, h);
-
-	//app.server.responses = pj_pool_zalloc(app.pool, sizeof(responses_t) * app.server.responses_count);
-	//responses_t *rep = app.server.responses;
-	json_t *e = json_array_get(extra_headers, 0);
+	json_t *e = json_array_get(extra_headers_json, 0);
 	int count=0;
 	if (e) {
 		void *iter = json_object_iter(e);
@@ -1510,11 +1504,11 @@ static void load_json_config_extra_headers (json_t *extra_headers) {
 	}
 	printf("extra-headers x%d\n", app.client.custom_headers_count);
 	app.client.extra_headers = pj_pool_zalloc(app.pool, sizeof(extra_header_t) * app.client.custom_headers_count);
-	e = json_array_get(extra_headers, 0);
+	e = json_array_get(extra_headers_json, 0);
+	extra_header_t *extra_headers = app.client.extra_headers;
 	if (e) {
 		void *iter = json_object_iter(e);
 		while (iter) {
-			extra_header_t *extra_headers = app.client.extra_headers;
 			const char *key = json_object_iter_key(iter);
 			json_t *v = json_object_iter_value(iter);
 			if (json_is_string(v)) {
