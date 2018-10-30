@@ -10,5 +10,12 @@
 		}
 	],
 	"client" : [
+		{
+			"extra-headers" : [
+				{ "Foo" : "Bar",
+				  "Bar" : "Foo"
+				}
+			]
+		}
 	]
 }

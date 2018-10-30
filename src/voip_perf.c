@@ -134,6 +134,11 @@ typedef struct responses {
 	int prob; // probability in percentage
 } responses_t;
 
+typedef struct extra_header {
+	pj_str_t name;
+	pj_str_t value;
+} extra_header_t;
+
 struct srv_state {
 	unsigned stateless_cnt;
 	unsigned stateful_cnt;
@@ -186,6 +191,8 @@ struct app {
 		pj_time_val last_completion;
 		unsigned total_responses;
 		unsigned response_codes[800];
+		int custom_headers_count;
+		extra_header_t *extra_headers;
 	} client;
 
 	struct {
@@ -1308,17 +1315,14 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		pjsip_dlg_set_route_set(dlg, &app.route_set);
 	}
 
-	int custom_headers_count = (int)(sizeof(HDR)/sizeof(HDR[0])/2);
+
 	int x, idx = 0;
-	for (x=0; x<custom_headers_count ; x++) {
+	extra_header_t *extra_headers = app.client.extra_headers;
+	for (x=0; x<app.client.custom_headers_count ; x++) {
 		pjsip_generic_string_hdr *h;
-		pj_str_t hname, hvalue;
-		hname = pj_str((char *)HDR[idx]);
-		idx++;
-		hvalue = pj_str((char *)HDR[idx]);
-		idx++;
-		h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
+		h = pjsip_generic_string_hdr_create(dlg->pool, &extra_headers->name, &extra_headers->value);
 		pj_list_push_back(&dlg->inv_hdr, h);
+		extra_headers++;
 	}
 
 	/* Create initial INVITE request.
@@ -1487,6 +1491,49 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
+static void load_json_config_extra_headers (json_t *extra_headers) {
+	int i=0;
+       // pjsip_generic_string_hdr *h;
+       // h = pjsip_generic_string_hdr_create(dlg->pool, &hname, &hvalue);
+       // pj_list_push_back(&dlg->inv_hdr, h);
+
+	//app.server.responses = pj_pool_zalloc(app.pool, sizeof(responses_t) * app.server.responses_count);
+	//responses_t *rep = app.server.responses;
+	json_t *e = json_array_get(extra_headers, 0);
+	int count=0;
+	if (e) {
+		void *iter = json_object_iter(e);
+		while (iter) {
+			iter = json_object_iter_next(e, iter);
+			app.client.custom_headers_count++;
+		}
+	}
+	printf("extra-headers x%d\n", app.client.custom_headers_count);
+	app.client.extra_headers = pj_pool_zalloc(app.pool, sizeof(extra_header_t) * app.client.custom_headers_count);
+	e = json_array_get(extra_headers, 0);
+	if (e) {
+		void *iter = json_object_iter(e);
+		while (iter) {
+			extra_header_t *extra_headers = app.client.extra_headers;
+			const char *key = json_object_iter_key(iter);
+			json_t *v = json_object_iter_value(iter);
+			if (json_is_string(v)) {
+				printf("extra-header[%s: %s]\n", key, json_string_value(v));
+				pjsip_generic_string_hdr *h;
+				pj_str_t hname, hvalue;
+				pj_strdup2(app.pool, &extra_headers->name, key);
+				pj_strdup2(app.pool, &extra_headers->value, json_string_value(v));
+				extra_headers++;
+			}
+			iter = json_object_iter_next(e, iter);
+		}
+	}
+	return;
+err:
+	app.client.custom_headers_count = 0;
+	printf("[%s] error loading config\n", __FUNCTION__);
+}
+
 static void load_json_config (char *fn) {
 	json_t *json;
 	json_error_t error;
@@ -1521,6 +1568,17 @@ static void load_json_config (char *fn) {
 					}
 				} else if (strcmp(key, "client") == 0)  {
 					printf("client params\n");
+					for (i=0;i<(int)json_array_size(value);i++) {
+						json_t *e = json_array_get(value, i);
+						if (e) {
+							void *client_iter = json_object_iter(e);
+							const char *client_key = json_object_iter_key(client_iter);
+							json_t *client_value = json_object_iter_value(client_iter);
+							if (strcmp(client_key, "extra-headers") == 0) {
+								if (json_is_array(client_value)) load_json_config_extra_headers(client_value);
+							}
+						}
+					}
 				}
 				printf("[%s][array]size[%d]\n", key, (int)json_array_size(value));
 			}
@@ -1580,6 +1638,8 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.client.method = *pjsip_get_options_method();
 	app.client.job_window = c = JOB_WINDOW;
 	app.client.timeout = 60;
+	app.client.custom_headers_count = 0;
+	app.client.extra_headers = NULL;
 	app.latency_metrics_period_duration = 0;
 	app.log_level = 3;
 	app.server.responses = NULL;
