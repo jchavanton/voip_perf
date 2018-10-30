@@ -94,20 +94,40 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 
 ```bash
 ./voip_perf "sip:+1??????????@sip.domain.com:5061;transport=tls" \
-            --local-port=5050 \
-            --method="INVITE" \
-            --caller-id="+1??????????" \
-            --interval=1 \
-            --count=20 \
-            --call-per-second=10 \
-	    --window=25 \
-            --thread-count=1 \
-            --use-tls \
-            --timeout 7200 \
-            --tls-cert="tls/certificate.pem" \
-            --tls-key="tls/key.pem" \
-            --tls-calist="tls/ca_list.pem" \
-#           --verbose \
+	--local-port=5050 \
+	--method="INVITE" \
+	--caller-id="+1??????????" \
+	--interval=1 \
+	--count=20 \
+	--call-per-second=10 \
+	--window=25 \
+	--thread-count=1 \
+	--use-tls \
+	--timeout 7200 \
+	--tls-cert="tls/certificate.pem" \
+	--tls-key="tls/key.pem" \
+	--tls-calist="tls/ca_list.pem" \
+	--conf="conf.json"
+#	--verbose \
+```
+
+### Example : config in json file
+
+```json
+{
+	"server" : [
+		{
+			"response" : [
+				{ "code" : 200,
+				  "reason" : "OK",
+				  "probability" : 1.0
+				}
+			]
+		}
+	],
+	"client" : [
+	]
+}
 ```
 
 http://www.pjsip.org/release/0.5.4/PJSIP-Dev-Guide.pdf

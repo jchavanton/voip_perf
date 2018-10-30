@@ -170,7 +170,7 @@ struct app {
 	pjmedia_sdp_session *dummy_sdp;
 	int log_level;
 	pjsip_route_hdr route_set;
-
+	pj_str_t cfg_fn;
 	struct {
 		pjsip_method method;
 		pj_str_t dst_uri;
@@ -521,7 +521,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	int x = rand()%100;
 	int y = 0;
 	for (i=0;i< app.server.responses_count ;i++) {
-		printf("%d %s [%d/100]\n", app.server.responses[i].code, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
+		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
 			status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
 			if (status != PJ_SUCCESS)
@@ -1401,6 +1401,7 @@ static void usage(void) {
 	"                           proper SDP negotiation [default: dummy]\n"
 	"\n"
 	"Client and Server options:\n"
+	"   --config=filename.json  Set the json config file name\n"
 	"   --local-port=PORT       Set local port [default: 5060]\n"
 	"   --use-tcp               Use TCP instead of UDP. Note that when started as\n"
 	"                           client, you must add ;transport=tcp parameter to URL\n"
@@ -1476,7 +1477,7 @@ static void load_json_config_replies (json_t *responses) {
 				}
 				iter = json_object_iter_next(e, iter);
 			}
-			printf("%d %s [%d/100]\n", rep->code, rep->reason.ptr, rep->prob);
+			printf("[%d %.*s] [%d/100]\n", rep->code, (int)rep->reason.slen, rep->reason.ptr, rep->prob);
 			rep++;
 		}
 	}
@@ -1486,11 +1487,11 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
-static void load_json_config () {
+static void load_json_config (char *fn) {
 	json_t *json;
 	json_error_t error;
 
-	json = json_load_file("./conf.json", 0, &error);
+	json = json_load_file(fn, 0, &error);
 	if(!json) {
 		printf("can not load json config\n");
 		/* the error variable contains error information */
@@ -1530,7 +1531,7 @@ static void load_json_config () {
 }
 
 static pj_status_t init_options(int argc, char *argv[]) {
-	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_STATELESS, OPT_LOCAL_PORT,
+	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_CFG_FN, OPT_STATELESS, OPT_LOCAL_PORT,
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
                OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
@@ -1538,6 +1539,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
                OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI
         };
 	struct pj_getopt_option long_options[] = {
+		{ "config",	    1, 0, OPT_CFG_FN },
 		{ "local-port",	    1, 0, OPT_LOCAL_PORT },
 		{ "caller-id",	    1, 0, OPT_CALLERID },
 		{ "count",	    1, 0, OPT_COUNT },
@@ -1585,7 +1587,8 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	pj_list_init(&app.route_set);
 	#define LATENCY_DEFAULT_FN "./latency.csv"
 	app.latency_fn = pj_str(LATENCY_DEFAULT_FN);
-
+	#define CONFIG_DEFAULT_FN "./conf.json"
+	app.cfg_fn = pj_str(CONFIG_DEFAULT_FN);
 	/* Parse options */
 	pj_optind = 0;
 	while((c=pj_getopt_long(argc,argv, "", long_options, &option_index))!=-1) 
@@ -1654,6 +1657,12 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		case OPT_TLS_CALIST:
 			app.tls.calist = pj_str((char*)pj_optarg);
 			PJ_LOG(3,(THIS_FILE, "tls ca list:[%s][%d]", app.tls.calist.ptr, app.tls.calist.slen ));
+			break;
+		case OPT_CFG_FN:
+			{
+			app.cfg_fn = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "json config filename:[%s][%d]", app.cfg_fn.ptr, app.cfg_fn.slen ));
+			}
 			break;
 		case OPT_CALLERID:
 			{
@@ -2132,12 +2141,12 @@ void handle_sigint(int sig) {
 
 int main(int argc, char *argv[]) {
 	static char report[1024];
-	printf("PJSIP Performance Measurement Tool v%s\n (c)2006 pjsip.org\n\n", PJ_VERSION);
 
 	srand(time(NULL));
 	if (create_app() != 0) return 1;
 	if (init_options(argc, argv) != 0) return 1;
-	load_json_config();
+	printf("[%s]\n", app.cfg_fn.ptr);
+	load_json_config(app.cfg_fn.ptr);
 	if (init_sip() != 0) return 1;
 	if (init_media() != 0) return 1;
 	pj_log_set_level(app.log_level);
