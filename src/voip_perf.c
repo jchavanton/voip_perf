@@ -1639,6 +1639,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.server.responses = NULL;
 	app.server.responses_count = 0;
 	pj_list_init(&app.route_set);
+	pjsip_cfg()->endpt.disable_tcp_switch=PJ_TRUE;
 	#define LATENCY_DEFAULT_FN "./latency.csv"
 	app.latency_fn = pj_str(LATENCY_DEFAULT_FN);
 	#define CONFIG_DEFAULT_FN "./conf.json"
