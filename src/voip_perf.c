@@ -221,6 +221,7 @@ static FILE *log_stats_output = NULL;
 struct call {
 	pjsip_inv_session *inv;
 	pj_timer_entry ans_timer;
+	pj_timer_entry cancel_timer;
 };
 
 typedef struct outbound_call {
@@ -419,6 +420,14 @@ static pj_status_t send_response(pjsip_inv_session *inv, pjsip_rx_data *rdata, i
 	return status;
 }
 
+static void cancel_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
+	struct call *call = entry->user_data;
+	pj_bool_t has_initial = PJ_TRUE;
+	PJ_UNUSED_ARG(h);
+	entry->id = 0;
+	send_response(call->inv, NULL, 487, NULL, &has_initial);
+}
+
 static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 	struct call *call = entry->user_data;
 	pj_bool_t has_initial = PJ_TRUE;
@@ -516,6 +525,13 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		return PJ_TRUE;
 	}
 
+	/* Send 180/Ringing if needed */
+	if (app.server.send_ringing) {
+		status = send_response(call->inv, rdata, 183, NULL, &has_initial);
+		if (status != PJ_SUCCESS)
+			return PJ_TRUE;
+	}
+
 	/* json config responses */
 	int i;
 	int x = rand()%100;
@@ -523,20 +539,26 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	for (i=0;i< app.server.responses_count ;i++) {
 		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
-			status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
-			if (status != PJ_SUCCESS)
-				return PJ_TRUE;
+
+			if (app.server.responses[i].code == 487) {
+				pj_time_val delay;
+				call->cancel_timer.id = 1;
+				call->cancel_timer.user_data = call;
+				call->cancel_timer.cb = &cancel_timer_cb;
+				delay.sec = 0;
+				delay.msec = app.server.delay;
+				pj_time_val_normalize(&delay);
+				pjsip_endpt_schedule_timer(app.sip_endpt, &call->cancel_timer, &delay);
+			} else {
+				status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
+				if (status != PJ_SUCCESS) return PJ_TRUE;
+			}
 			return PJ_TRUE;
 		}
 		y += app.server.responses[i].prob;
 	}
 
-	/* Send 180/Ringing if needed */
-	if (app.server.send_ringing) {
-		status = send_response(call->inv, rdata, 180, NULL, &has_initial);
-		if (status != PJ_SUCCESS)
-			return PJ_TRUE;
-	}
+
 
 	/* Simulate call processing delay */
 	if (app.server.delay) {
