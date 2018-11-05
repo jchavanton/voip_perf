@@ -2389,10 +2389,21 @@ int main(int argc, char *argv[]) {
 		    }
 		}
 
+		puts("\nPress <ENTER> to quit\n");
+		fflush(stdout);
+		unused = fgets(s, sizeof(s), stdin);
+		PJ_UNUSED_ARG(unused);
+
+		app.thread_quit = PJ_TRUE;
+		for (i=0; i<app.thread_count; ++i) {
+			pj_thread_join(app.thread[i]);
+			app.thread[i] = NULL;
+		}
 		puts("\nPress <CTLR_C> to quit\n");
 		//signal(SIGINT, handle_sigint);
-		while(1);
+		//while(1);
 	}
+	destroy_app();
 	return 0;
 }
 
