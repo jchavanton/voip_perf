@@ -544,7 +544,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	int x = rand()%100;
 	int y = 0;
 	for (i=0;i< app.server.responses_count ;i++) {
-		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
+		//printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
 
 			if (app.server.responses[i].code == 487) {
@@ -557,6 +557,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 				pj_time_val_normalize(&delay);
 				pjsip_endpt_schedule_timer(app.sip_endpt, &call->cancel_timer, &delay);
 			} else {
+				if (app.server.responses[i].code == 200) app.server.cur_state.call_cnt++;
 				status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
 				if (status != PJ_SUCCESS) return PJ_TRUE;
 			}
