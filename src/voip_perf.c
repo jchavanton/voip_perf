@@ -525,19 +525,9 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	/* Invite session has been created, decrement & release dialog lock. */
 	pjsip_dlg_dec_lock(dlg);
 
-	/* Send 100/Trying if needed */
-	if (app.server.send_trying) {
-		status = send_response(call->inv, rdata, 100, NULL, &has_initial);
-		if (status != PJ_SUCCESS)
-		return PJ_TRUE;
-	}
 
-	/* Send 180/Ringing if needed */
-	if (app.server.send_ringing) {
-		status = send_response(call->inv, rdata, 183, NULL, &has_initial);
-		if (status != PJ_SUCCESS)
-			return PJ_TRUE;
-	}
+
+
 
 	/* json config responses */
 	int i;
@@ -548,6 +538,18 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		if (x < (app.server.responses[i].prob+y)) {
 
 			if (app.server.responses[i].code == 487) {
+				/* Send 100/Trying if needed */
+				if (app.server.send_trying) {
+					status = send_response(call->inv, rdata, 100, NULL, &has_initial);
+					if (status != PJ_SUCCESS)
+					return PJ_TRUE;
+				}
+				/* Send 180/Ringing if needed */
+				if (app.server.send_ringing) {
+					status = send_response(call->inv, rdata, 183, NULL, &has_initial);
+					if (status != PJ_SUCCESS)
+						return PJ_TRUE;
+				}
 				pj_time_val delay;
 				call->cancel_timer.id = 1;
 				call->cancel_timer.user_data = call;
@@ -566,7 +568,18 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		y += app.server.responses[i].prob;
 	}
 
-
+	/* Send 100/Trying if needed */
+	if (app.server.send_trying) {
+		status = send_response(call->inv, rdata, 100, NULL, &has_initial);
+		if (status != PJ_SUCCESS)
+		return PJ_TRUE;
+	}
+	/* Send 180/Ringing if needed */
+	if (app.server.send_ringing) {
+		status = send_response(call->inv, rdata, 183, NULL, &has_initial);
+		if (status != PJ_SUCCESS)
+			return PJ_TRUE;
+	}
 
 	/* Simulate call processing delay */
 	if (app.server.delay) {
@@ -1115,7 +1128,7 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
 		latency += now.sec*1000;
 	if (status_code == 100) {
 		idx = 0;
-	} else if (status_code == 180) {
+	} else if (status_code == 180 || status_code == 183) {
 		idx = 1;
 	} else if (status_code == 200) {
 		idx = 2;
