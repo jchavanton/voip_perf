@@ -526,6 +526,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	pjsip_dlg_dec_lock(dlg);
 
 
+	app.server.cur_state.call_cnt++;
 
 
 
@@ -534,7 +535,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	int x = rand()%100;
 	int y = 0;
 	for (i=0;i< app.server.responses_count ;i++) {
-		//printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
+		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
 
 			if (app.server.responses[i].code == 487) {
@@ -597,7 +598,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		PJ_ASSERT_ON_FAIL(status == PJ_SUCCESS, return PJ_TRUE);
 	}
 
-	app.server.cur_state.call_cnt++;
+
 	return PJ_TRUE;
 }
 
