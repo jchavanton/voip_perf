@@ -557,7 +557,7 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 				pj_time_val_normalize(&delay);
 				pjsip_endpt_schedule_timer(app.sip_endpt, &call->cancel_timer, &delay);
 			} else {
-				if (app.server.responses[i].code == 200) app.server.cur_state.call_cnt++;
+				if (app.server.responses[i].code == 200) break;
 				status = send_response(call->inv, rdata, app.server.responses[i].code,&app.server.responses[i].reason, &has_initial);
 				if (status != PJ_SUCCESS) return PJ_TRUE;
 			}
