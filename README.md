@@ -34,16 +34,20 @@ It is a complete program to measure the
  The client will generate SIP responses latency metrics at defined interval in CSV format.
 
 
-### INSTALLATION (example ubuntu)
+### INSTALLATION (debian)
 
 ```
-apt-get install -y build-essential libcurl4-openssl-dev cmake git libasound2-dev pkg-config
+apt-get update
+apt-get install -y build-essential libcurl4-openssl-dev cmake pkg-config libasound2-dev
+apt-get install -y libssl-dev git libjansson-dev
+ldconfig
 
-git clone https://github.com/jchavanton/voip_perf.git
-cd voip_perf
 git submodule update --init
-cd pjsua/
-./configure && make dep && make && make install
+
+cd pjproject
+./configure --disable-libwebrtc
+make dep && make && make install
+
 cd ..
 cmake CMakeLists.txt
 make

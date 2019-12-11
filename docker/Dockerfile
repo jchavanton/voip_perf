@@ -1,9 +1,21 @@
-FROM alpine:3.8
+FROM debian
 
-RUN echo "building VoIP Perf" \
-	&& apk update && apk add git cmake g++ cmake make curl-dev alsa-lib-dev jansson jansson-dev \
-	&& mkdir /git && cd /git && git clone https://github.com/jchavanton/voip_perf.git \
-	&& cd voip_perf && git checkout master \
-	&& git submodule update --init \
-	&& cd pjsua && ./configure && make dep && make && make install \
-	&& cd .. && cmake CMakeLists.txt && make
+RUN echo "installing dependencies" && apt-get update \
+        && apt-get install -y build-essential libcurl4-openssl-dev cmake pkg-config libasound2-dev \
+        && apt-get -y install libssl-dev git libjansson-dev \
+        && ldconfig
+
+RUN echo "cloning VoIP Perf" \
+        && git clone https://github.com/jchavanton/voip_perf.git \
+        && cd voip_perf \
+        && git submodule update --init
+
+RUN echo "building (configure) PJLIB" && cd voip_perf \
+        && cd pjproject && ./configure --disable-libwebrtc
+
+RUN echo "building (make) PJLIB .." && cd voip_perf \
+        && cd pjproject && make dep && make && make install
+
+RUN echo "building VoIP Perf" && cd voip_perf \
+        && cmake CMakeLists.txt \
+        && make
