@@ -197,7 +197,7 @@ struct app {
 	} client;
 
 	struct {
-		pj_bool_t output_console;
+		pj_bool_t console_mode;
 		pj_bool_t send_trying;
 		pj_bool_t send_ringing;
 		unsigned delay;
@@ -976,34 +976,31 @@ static pj_status_t init_sip() {
 /*
  * Destroy SIP
  */
-static void destroy_app()
-{
-    unsigned i;
-
-    app.thread_quit = 1;
-    for (i=0; i<app.thread_count; ++i) {
-	if (app.thread[i]) {
-	    pj_thread_join(app.thread[i]);
-	    pj_thread_destroy(app.thread[i]);
-	    app.thread[i] = NULL;
+static void destroy_app() {
+	unsigned i;
+	printf("shuting down, bye !\n");
+	app.thread_quit = 1;
+	for (i=0; i<app.thread_count; ++i) {
+		if (app.thread[i]) {
+			pj_thread_join(app.thread[i]);
+			pj_thread_destroy(app.thread[i]);
+			app.thread[i] = NULL;
+		}
 	}
-    }
-
-    if (app.sip_endpt) {
-	pjsip_endpt_destroy(app.sip_endpt);
-	app.sip_endpt = NULL;
-    }
-
-    if (app.pool) {
-	pj_pool_release(app.pool);
-	app.pool = NULL;
-	PJ_LOG(3,(THIS_FILE, "Peak memory size: %uMB",
-			     app.cp.peak_used_size / 1000000));
-	pj_caching_pool_destroy(&app.cp);
-    }
-
-    /* Shutdown PJLIB */
-    pj_shutdown();
+	if (app.sip_endpt) {
+		pjsip_endpt_destroy(app.sip_endpt);
+		app.sip_endpt = NULL;
+	}
+	if (app.pool) {
+		pj_pool_release(app.pool);
+		app.pool = NULL;
+		PJ_LOG(3,(THIS_FILE, "Peak memory size: %uMB",
+				     app.cp.peak_used_size / 1000000));
+		pj_caching_pool_destroy(&app.cp);
+	}
+	/* Shutdown PJLIB */
+	pj_shutdown();
+	exit(0);
 }
 
 
@@ -1461,7 +1458,7 @@ static void usage(void) {
 	"   --ringing               Send 180/Ringing response (server, default no)\n"
 	"   --delay=MS              Delay answering call by MS (server, default no)\n"
 	"   --duration=S            Duration of the call before disconnecting in S (client, default 0)\n"
-	"   --outpout-console       Output will not generate a new line everytime\n"
+	"   --console               Console mode\n"
 	"\n"
 	"Misc options:\n"
 	"   --help                  Display this screen\n"
@@ -1626,7 +1623,7 @@ static void load_json_config (char *fn) {
 static pj_status_t init_options(int argc, char *argv[]) {
 	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_CFG_FN, OPT_STATELESS, OPT_LOCAL_PORT,
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
-               OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_OUTPUT_CONSOLE,
+               OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_CONSOLE_MODE,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
                OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
                OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI, OPT_VERSION
@@ -1637,7 +1634,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "caller-id",	    1, 0, OPT_CALLERID },
 		{ "count",	    1, 0, OPT_COUNT },
 		{ "thread-count",   1, 0, OPT_THREAD_COUNT },
-		{ "output-console", 0, 0, OPT_OUTPUT_CONSOLE },
+		{ "console",        0, 0, OPT_CONSOLE_MODE },
 		{ "method",	    1, 0, OPT_METHOD },
 		{ "latency_file",	    1, 0, OPT_LATENCY_FN },
 		{ "proxy",	    1, 0, OPT_PROXY },
@@ -1826,8 +1823,8 @@ static pj_status_t init_options(int argc, char *argv[]) {
 				return -1;
 			}
 			break;
-		case OPT_OUTPUT_CONSOLE:
-			app.server.output_console = 1;
+		case OPT_CONSOLE_MODE:
+			app.server.console_mode = 1;
 			break;
 		case OPT_TRYING:
 			app.server.send_trying = 1;
@@ -2190,7 +2187,7 @@ static int server_thread(void *arg)
 
 		last_report = now;
 		next_report = last_report;
-		if (app.server.output_console) {
+		if (app.server.console_mode) {
 			next_report.sec++;
 		} else {
 			next_report.sec+=5;
@@ -2207,7 +2204,7 @@ static int server_thread(void *arg)
 		       str_stateless, stateless*1000/msec,
 		       str_stateful, stateful*1000/msec,
 		       str_call, call*1000/msec,
-		       ((app.server.output_console) ? '\r' : '\n')
+		       ((app.server.console_mode) ? '\r' : '\n')
 		);
 		fflush(stdout);
 
@@ -2234,18 +2231,8 @@ static void write_report(const char *msg)
 void handle_sigint(int sig) {
 	printf("Caught signal %d\n", sig);
 	fflush(stdout);
-
-	//app.thread_quit = PJ_TRUE;
-	//int i;
-	//for (i=0; i<app.thread_count; ++i) {
-	//	pj_thread_join(app.thread[i]);
-	//	app.thread[i] = NULL;
-	//}
-	//puts("");
-	//destroy_app();
-	//printf("Cleaned %d\n", sig);
+	destroy_app();
 }
-
 
 int main(int argc, char *argv[]) {
 	static char report[1024];
@@ -2419,21 +2406,20 @@ int main(int argc, char *argv[]) {
 		    }
 		}
 
-		puts("\nPress <ENTER> to quit\n");
-		fflush(stdout);
-		unused = fgets(s, sizeof(s), stdin);
-		PJ_UNUSED_ARG(unused);
-
-		app.thread_quit = PJ_TRUE;
-		for (i=0; i<app.thread_count; ++i) {
-			pj_thread_join(app.thread[i]);
-			app.thread[i] = NULL;
+		if (app.server.console_mode) {
+			puts("\nPress <ENTER> to quit\n");
+			fflush(stdout);
+			unused = fgets(s, sizeof(s), stdin);
+			PJ_UNUSED_ARG(unused);
+			destroy_app();
+		} else {
+			signal(SIGINT, handle_sigint);
+			for (i=0; i<app.thread_count; ++i)
+				pj_thread_join(app.thread[i]);
 		}
-		puts("\nPress <CTLR_C> to quit\n");
-		//signal(SIGINT, handle_sigint);
-		//while(1);
 	}
-	destroy_app();
 	return 0;
 }
+
+
 
