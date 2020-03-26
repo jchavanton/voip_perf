@@ -65,6 +65,7 @@
 #include <jansson.h>
 
 #include "custom_headers.h"
+#include "version.h"
 #include<signal.h>
 
 // random
@@ -1465,6 +1466,7 @@ static void usage(void) {
 	"Misc options:\n"
 	"   --help                  Display this screen\n"
 	"   --verbose               Verbose logging (put more than once for even more)\n"
+	"   --version               Output version information\n"
 	"\n"
 	"When started as server, voip_perf can be contacted on the following URIs:\n"
 	"   - sip:0@server-addr     To handle requests statelessly.\n"
@@ -1627,7 +1629,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
                OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_OUTPUT_CONSOLE,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
                OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
-               OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI
+               OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI, OPT_VERSION
         };
 	struct pj_getopt_option long_options[] = {
 		{ "config",	    1, 0, OPT_CFG_FN },
@@ -1654,6 +1656,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "trying",	    0, 0, OPT_TRYING },
 		{ "ruri",	    0, 0, OPT_RURI },
 		{ "ringing",	    0, 0, OPT_RINGING },
+		{ "version",	    0, 0, OPT_VERSION },
 		{ "tls-cert",	    1, 0, OPT_TLS_CERT },
 		{ "tls-key",	    1, 0, OPT_TLS_KEY },
 		{ "tls-pass",	    1, 0, OPT_TLS_PASS },
@@ -1731,7 +1734,9 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		case OPT_HELP:
 			usage();
 			return -1;
-			break;
+		case OPT_VERSION:
+			printf("voip_perf version:%s\n", VERSION);
+			return -1;
 		case OPT_STATELESS:
 			app.client.stateless = PJ_TRUE;
 			break;
@@ -2385,7 +2390,7 @@ int main(int argc, char *argv[]) {
 		char s[10], *unused;
 		pj_status_t status;
 		unsigned i;
-		puts("voip_perf started in server-mode");
+		printf("voip_perf %s started in server-mode\n", VERSION);
 		printf("Receiving requests on the following URIs:\n"
 		       "  sip:0@%.*s:%d%s    for stateless handling\n"
 		       "  sip:1@%.*s:%d%s    for stateful handling\n"
