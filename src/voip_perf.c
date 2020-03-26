@@ -196,6 +196,7 @@ struct app {
 	} client;
 
 	struct {
+		pj_bool_t output_console;
 		pj_bool_t send_trying;
 		pj_bool_t send_ringing;
 		unsigned delay;
@@ -1459,6 +1460,7 @@ static void usage(void) {
 	"   --ringing               Send 180/Ringing response (server, default no)\n"
 	"   --delay=MS              Delay answering call by MS (server, default no)\n"
 	"   --duration=S            Duration of the call before disconnecting in S (client, default 0)\n"
+	"   --outpout-console       Output will not generate a new line everytime\n"
 	"\n"
 	"Misc options:\n"
 	"   --help                  Display this screen\n"
@@ -1622,7 +1624,7 @@ static void load_json_config (char *fn) {
 static pj_status_t init_options(int argc, char *argv[]) {
 	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_CFG_FN, OPT_STATELESS, OPT_LOCAL_PORT,
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
-               OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY,
+               OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_OUTPUT_CONSOLE,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
                OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
                OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI
@@ -1633,6 +1635,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "caller-id",	    1, 0, OPT_CALLERID },
 		{ "count",	    1, 0, OPT_COUNT },
 		{ "thread-count",   1, 0, OPT_THREAD_COUNT },
+		{ "output-console", 0, 0, OPT_OUTPUT_CONSOLE },
 		{ "method",	    1, 0, OPT_METHOD },
 		{ "latency_file",	    1, 0, OPT_LATENCY_FN },
 		{ "proxy",	    1, 0, OPT_PROXY },
@@ -1817,6 +1820,9 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			PJ_LOG(3,(THIS_FILE, "I think --duration %s is too long", pj_optarg));
 				return -1;
 			}
+			break;
+		case OPT_OUTPUT_CONSOLE:
+			app.server.output_console = 1;
 			break;
 		case OPT_TRYING:
 			app.server.send_trying = 1;
@@ -2179,8 +2185,11 @@ static int server_thread(void *arg)
 
 		last_report = now;
 		next_report = last_report;
-		next_report.sec++;
-
+		if (app.server.output_console) {
+			next_report.sec++;
+		} else {
+			next_report.sec+=5;
+		}
 		stateless = app.server.cur_state.stateless_cnt - app.server.prev_state.stateless_cnt;
 		stateful = app.server.cur_state.stateful_cnt - app.server.prev_state.stateful_cnt;
 		call = app.server.cur_state.call_cnt - app.server.prev_state.call_cnt;
@@ -2189,10 +2198,12 @@ static int server_thread(void *arg)
 		good_number(str_stateful, app.server.cur_state.stateful_cnt);
 		good_number(str_call, app.server.cur_state.call_cnt);
 
-		printf("Total(rate): stateless:%s (%d/s), statefull:%s (%d/s), call:%s (%d/s)       \r",
+		printf("Total(rate): stateless:%s (%d/s), statefull:%s (%d/s), call:%s (%d/s)       %c",
 		       str_stateless, stateless*1000/msec,
 		       str_stateful, stateful*1000/msec,
-		       str_call, call*1000/msec);
+		       str_call, call*1000/msec,
+		       ((app.server.output_console) ? '\r' : '\n')
+		);
 		fflush(stdout);
 
 		app.server.prev_state = app.server.cur_state;
