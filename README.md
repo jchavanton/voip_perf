@@ -33,6 +33,8 @@ It is a complete program to measure the
 
  The client will generate SIP responses latency metrics at defined interval in CSV format.
 
+### Docker quick start
+[quick start with docker](QUICK_START.md)
 
 ### INSTALLATION (debian)
 
@@ -130,6 +132,19 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 		}
 	],
 	"client" : [
+		{
+			"extra-headers" : [
+				{ "Foo" : "Bar",
+				  "Bar" : "Foo"
+				}
+			]
+		},{
+			"list" : [
+				{ "to_user" : "1106388????" },
+				{ "to_user" : "1206388????" },
+				{ "to_user" : "1306388????" }
+			]
+		}
 	]
 }
 ```

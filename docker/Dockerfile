@@ -19,3 +19,6 @@ RUN echo "building (make) PJLIB .." && cd voip_perf \
 RUN echo "building VoIP Perf" && cd voip_perf \
         && cmake CMakeLists.txt \
         && make
+
+COPY entry.sh /
+ENTRYPOINT ["/entry.sh"]
