@@ -66,7 +66,7 @@
 
 #include "custom_headers.h"
 #include "version.h"
-#include<signal.h>
+#include <signal.h>
 
 // random
 #include <time.h>
@@ -140,6 +140,10 @@ typedef struct extra_header {
 	pj_str_t value;
 } extra_header_t;
 
+typedef struct user {
+	pj_str_t number;
+} user_t;
+
 struct srv_state {
 	unsigned stateless_cnt;
 	unsigned stateful_cnt;
@@ -193,7 +197,9 @@ struct app {
 		unsigned total_responses;
 		unsigned response_codes[800];
 		int custom_headers_count;
+		int users_count;
 		extra_header_t *extra_headers;
+		user_t *users;
 	} client;
 
 	struct {
@@ -1288,6 +1294,8 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 
 	pj_gettimeofday(&now); // profiling check
 
+	// json provided list ?
+
 	pj_str_t target_uri; // T.O.D.O. NEED TO FREE ?
 	target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
 	target_uri.slen = dst_uri->slen;
@@ -1529,10 +1537,32 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
-static void load_json_config_extra_headers (json_t *extra_headers_json) {
-	int i=0;
+static void load_json_config_users(json_t *users_json) {
+	if (!users_json) return;
+	app.client.users_count = json_array_size(users_json);
+	app.client.users = pj_pool_zalloc(app.pool, sizeof(user_t) * app.client.users_count);
+	user_t *users = app.client.users;
+	printf("list users x%d\n", app.client.users_count);
+	json_t *e;
+	int i = 0;
+	while (e = json_array_get(users_json, i)) {
+		i++;
+		void *iter = json_object_iter(e);
+		while (iter) {
+			const char *key = json_object_iter_key(iter);
+			if (strcmp(key, "number") == 0) {
+				json_t *v = json_object_iter_value(iter);
+				pj_strdup2(app.pool, &users->number, key);
+				printf("user[%s: %s]\n", key, json_string_value(v));
+				users++;
+			}
+			iter = json_object_iter_next(e, iter);
+		}
+	}
+}
+
+static void load_json_config_extra_headers(json_t *extra_headers_json) {
 	json_t *e = json_array_get(extra_headers_json, 0);
-	int count=0;
 	if (e) {
 		void *iter = json_object_iter(e);
 		while (iter) {
@@ -1608,6 +1638,9 @@ static void load_json_config (char *fn) {
 							json_t *client_value = json_object_iter_value(client_iter);
 							if (strcmp(client_key, "extra-headers") == 0) {
 								if (json_is_array(client_value)) load_json_config_extra_headers(client_value);
+							}
+							if (strcmp(client_key, "users") == 0) {
+								if (json_is_array(client_value)) load_json_config_users(client_value);
 							}
 						}
 					}

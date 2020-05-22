@@ -139,10 +139,10 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 				}
 			]
 		},{
-			"list" : [
-				{ "to_user" : "1106388????" },
-				{ "to_user" : "1206388????" },
-				{ "to_user" : "1306388????" }
+			"users" : [
+				{ "number" : "1106388????" },
+				{ "number" : "1206388????" },
+				{ "number" : "1306388????" }
 			]
 		}
 	]
