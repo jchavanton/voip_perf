@@ -91,6 +91,8 @@
 #endif
 
 
+#define CONFIG_DEFAULT_FN "./conf.json"
+
 /* Static message body for INVITE, when stateful processing is
  * invoked (instead of call-stateful, where SDP is generated
  * dynamically.
@@ -141,7 +143,7 @@ typedef struct extra_header {
 } extra_header_t;
 
 typedef struct user {
-	pj_str_t number;
+	pj_str_t ruri; // the RURI used when calling with this user
 } user_t;
 
 struct srv_state {
@@ -198,6 +200,7 @@ struct app {
 		unsigned response_codes[800];
 		int custom_headers_count;
 		int users_count;
+		int current_user;
 		extra_header_t *extra_headers;
 		user_t *users;
 	} client;
@@ -1294,11 +1297,19 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 
 	pj_gettimeofday(&now); // profiling check
 
-	// json provided list ?
-
-	pj_str_t target_uri; // T.O.D.O. NEED TO FREE ?
-	target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
-	target_uri.slen = dst_uri->slen;
+	pj_str_t target_uri;
+	// json users list
+	if (app.client.users_count) {
+		user_t *u = &app.client.users[app.client.current_user];
+		target_uri.ptr = strndup(u->ruri.ptr, u->ruri.slen);
+		target_uri.slen = u->ruri.slen;
+		app.client.current_user++;
+		if (app.client.current_user >= app.client.users_count)
+			app.client.current_user = 0;
+	} else {
+		target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
+		target_uri.slen = dst_uri->slen;
+	}
 
 	// random calledid
 	char digit[11] = "0123456789";
@@ -1546,18 +1557,18 @@ static void load_json_config_users(json_t *users_json) {
 	json_t *e;
 	int i = 0;
 	while (e = json_array_get(users_json, i)) {
-		i++;
 		void *iter = json_object_iter(e);
 		while (iter) {
 			const char *key = json_object_iter_key(iter);
-			if (strcmp(key, "number") == 0) {
+			if (strcmp(key, "ruri") == 0) {
 				json_t *v = json_object_iter_value(iter);
-				pj_strdup2(app.pool, &users->number, key);
-				printf("user[%s: %s]\n", key, json_string_value(v));
+				pj_strdup2(app.pool, &users->ruri, json_string_value(v));
+				PJ_LOG(5,(THIS_FILE,"user[%s: %s]", key, app.client.users[i].ruri));
 				users++;
 			}
 			iter = json_object_iter_next(e, iter);
 		}
+		i++;
 	}
 }
 
@@ -1596,15 +1607,21 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
-static void load_json_config (char *fn) {
+static int load_json_config (char *fn) {
 	json_t *json;
 	json_error_t error;
 
 	json = json_load_file(fn, 0, &error);
 	if(!json) {
-		printf("can not load json config\n");
-		/* the error variable contains error information */
+		if (strcmp(fn,CONFIG_DEFAULT_FN) == 0) {
+			PJ_LOG(4,(THIS_FILE,"no default json config[%s]", fn));
+			return 0;
+		} else {
+			PJ_LOG(4,(THIS_FILE,"error loading json config[%s]", fn));
+			return -1;
+		}
 	} else {
+		PJ_LOG(4,(THIS_FILE,"loading json config[%s]", fn));
 		const char *key;
 		json_t *value;
 		void *iter = json_object_iter(json);
@@ -1651,6 +1668,7 @@ static void load_json_config (char *fn) {
 			iter = json_object_iter_next(json, iter);
 		}
 	}
+	return 0;
 }
 
 static pj_status_t init_options(int argc, char *argv[]) {
@@ -1715,7 +1733,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	pjsip_cfg()->endpt.disable_tcp_switch=PJ_TRUE;
 	#define LATENCY_DEFAULT_FN "./latency.csv"
 	app.latency_fn = pj_str(LATENCY_DEFAULT_FN);
-	#define CONFIG_DEFAULT_FN "./conf.json"
+
 	app.cfg_fn = pj_str(CONFIG_DEFAULT_FN);
 	/* Parse options */
 	pj_optind = 0;
@@ -2273,11 +2291,12 @@ int main(int argc, char *argv[]) {
 	srand(time(NULL));
 	if (create_app() != 0) return 1;
 	if (init_options(argc, argv) != 0) return 1;
-	printf("[%s]\n", app.cfg_fn.ptr);
-	load_json_config(app.cfg_fn.ptr);
+	pj_log_set_level(app.log_level);
+	printf("log level set to :%d\n", app.log_level);
+	if (load_json_config(app.cfg_fn.ptr) != 0) return 1;
 	if (init_sip() != 0) return 1;
 	if (init_media() != 0) return 1;
-	pj_log_set_level(app.log_level);
+
 
 	if (app.log_level > 4) {
 		pjsip_endpt_register_module(app.sip_endpt, &msg_logger);

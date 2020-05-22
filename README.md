@@ -1,7 +1,7 @@
 ### ABOUT
 VoIP perf
 
-It is a VoIP signaling performance testing application that can provide a server and a client.
+It is a SIP signaling performance testing application that can provide a server and a client.
 It can produce latency stats at specified intervals in csv to measure the response time of any SIP endpoint.
 It can also read a json configuration file and randomize numbers.
 
@@ -88,9 +88,9 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 			]
 		},{
 			"users" : [
-				{ "number" : "1106388????" },
-				{ "number" : "1206388????" },
-				{ "number" : "1306388????" }
+				{ "ruri" : "sip:1106388????@192.168.10.10" },
+				{ "ruri" : "sip:1206388????@192.168.11.11" },
+				{ "ruri" : "sip:1306388????@192.168.10.10:5060" }
 			]
 		}
 	]
