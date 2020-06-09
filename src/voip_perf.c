@@ -780,6 +780,23 @@ static pjsip_module mod_test =
     NULL,			    /* on_tsx_state()		*/
 };
 
+/* Used to keep track of disconnection BYE timers */
+static pjsip_module mod_callcontrol =
+{
+    NULL, NULL,			    /* prev, next.		*/
+    { "mod-callcontrol", 9 },	    /* Name.			*/
+    -1,				    /* Id			*/
+    PJSIP_MOD_PRIORITY_APPLICATION, /* Priority			*/
+    NULL,			    /* load()			*/
+    NULL,			    /* start()			*/
+    NULL,			    /* stop()			*/
+    NULL,			    /* unload()			*/
+    NULL,			    /* on_rx_request()		*/
+    NULL,			    /* on_rx_response()		*/
+    NULL,			    /* on_tx_request.		*/
+    NULL,			    /* on_tx_response()		*/
+    NULL,			    /* on_tsx_state()		*/
+};
 
 static void report_completion(int status_code)
 {
@@ -953,6 +970,10 @@ static pj_status_t init_sip() {
 	status = pjsip_inv_usage_init(app.sip_endpt, &inv_cb);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, 1);
 	}
+
+	/* Register our call control module to receive incoming requests. */
+	status = pjsip_endpt_register_module( app.sip_endpt, &mod_callcontrol);
+	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
 	/* Register our module to receive incoming requests. */
 	status = pjsip_endpt_register_module( app.sip_endpt, &mod_test);
@@ -1231,9 +1252,14 @@ static void hangup_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 	pjsip_tx_data *tdata;
 	pj_status_t status;
 	PJ_LOG(4, (THIS_FILE, "hangup_timer "));
-	status = pjsip_inv_end_session(call->inv, PJSIP_SC_OK, NULL, &tdata);
-	if (status == PJ_SUCCESS && tdata)
-		status = pjsip_inv_send_msg(call->inv, tdata);
+	if (call->inv->state == PJSIP_INV_STATE_CONFIRMED) {
+		status = pjsip_inv_end_session(call->inv, PJSIP_SC_OK, NULL, &tdata);
+		if (status == PJ_SUCCESS && tdata)
+			status = pjsip_inv_send_msg(call->inv, tdata);
+	} else {
+		PJ_LOG(1, (THIS_FILE, "can not hangup call in this state : %d", call->inv->state));
+	}
+	call->inv->mod_data[mod_callcontrol.id] = NULL;
 }
 
 /* This is notification from the call when the call state has changed.
@@ -1267,8 +1293,9 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 			pj_time_val_normalize(&delay);
 			PJ_LOG(4, (THIS_FILE, "call_on_state_changed duration[%d] call[%d] ", delay.sec, inv->state));
 			pjsip_endpt_schedule_timer(app.sip_endpt, &call->hangup_timer, &delay);
-
+			inv->mod_data[mod_callcontrol.id] = &call->hangup_timer;
 		} else {
+			inv->mod_data[mod_callcontrol.id] = NULL;
 			status = pjsip_inv_end_session(inv, PJSIP_SC_OK, NULL, &tdata);
 			if (status == PJ_SUCCESS && tdata)
 				status = pjsip_inv_send_msg(inv, tdata);
@@ -1276,6 +1303,10 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 	} else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
 		report_completion(inv->cause);
 		inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
+		if (inv->mod_data[mod_callcontrol.id]) {
+			PJ_LOG(4, (THIS_FILE, "cancelling hangup timer"));
+			pjsip_endpt_cancel_timer(app.sip_endpt, (pj_timer_entry *)inv->mod_data[mod_callcontrol.id]);
+		}
 	}
 }
 
