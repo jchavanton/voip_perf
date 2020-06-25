@@ -536,11 +536,13 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	/* Invite session has been created, decrement & release dialog lock. */
 	pjsip_dlg_dec_lock(dlg);
 
-
 	app.server.cur_state.call_cnt++;
 
-
-
+	const pj_str_t user_503 = { "503", 3 };
+	if (pj_strcmp(&sip_uri->user, &user_503) == 0) {
+		status = send_response(call->inv, rdata, 503, NULL, &has_initial);
+			return PJ_TRUE;
+	}
 	/* json config responses */
 	int i;
 	int x = rand()%100;
@@ -548,7 +550,6 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	for (i=0;i< app.server.responses_count ;i++) {
 		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
-
 			if (app.server.responses[i].code == 487) {
 				/* Send 100/Trying if needed */
 				if (app.server.send_trying) {
