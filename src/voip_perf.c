@@ -189,15 +189,18 @@ struct app {
 		pj_str_t callerid;
 		pj_bool_t stateless;
 		unsigned timeout, interval;
-		unsigned job_count, job_submitted, job_finished, job_window;
+		unsigned job_count, job_submitted, job_connected, job_finished, job_window;
 		unsigned stat_max_window;
 		unsigned call_duration;
 		unsigned cps;
 		pj_time_val first_request;
 		pj_time_val requests_sent;
 		pj_time_val last_completion;
+		pj_time_val last_connection;
 		unsigned total_responses;
+		unsigned connection_total_responses;
 		unsigned response_codes[800];
+		unsigned connection_response_codes[800];
 		int custom_headers_count;
 		int users_count;
 		int current_user;
@@ -799,20 +802,37 @@ static pjsip_module mod_callcontrol =
     NULL,			    /* on_tsx_state()		*/
 };
 
-static void report_completion(int status_code)
+
+static void report_completion(int status_code, pj_str_t *method, pj_str_t* call_id)
 {
-    app.client.job_finished++;
-    if (status_code >= 200 && status_code < 800)
-	app.client.response_codes[status_code]++;
-    app.client.total_responses++;
-    pj_gettimeofday(&app.client.last_completion);
+	if (method && status_code != 200) {
+		if (call_id) {
+			PJ_LOG(3,(THIS_FILE, "%s[%.*s][%.*s][%d]", __FUNCTION__, method->slen, method->ptr, call_id->slen, call_id->ptr, status_code));
+		} else {
+			PJ_LOG(3,(THIS_FILE, "%s[%.*s][UNKNOWN]", __FUNCTION__, method->slen, method->ptr, status_code));
+		}
+	}
+	const pj_str_t str_invite = { "INVITE", 6 };
+	if (pj_strcmp(method, &str_invite) == 0 ) {
+		app.client.job_connected++;
+		if (status_code >= 200 && status_code < 800)
+			app.client.connection_response_codes[status_code]++;
+		app.client.connection_total_responses++;
+		pj_gettimeofday(&app.client.last_connection);
+	} else {
+		app.client.job_finished++;
+		if (status_code >= 200 && status_code < 800)
+			app.client.response_codes[status_code]++;
+		app.client.total_responses++;
+		pj_gettimeofday(&app.client.last_completion);
+	}
 }
 
 
 /* Handler when response is received. */
 static pj_bool_t mod_test_on_rx_response(pjsip_rx_data *rdata) {
 	if (pjsip_rdata_get_tsx(rdata) == NULL) {
-		report_completion(rdata->msg_info.msg->line.status.code);
+		report_completion(rdata->msg_info.msg->line.status.code, &rdata->msg_info.msg->line.req.method.name, NULL);
 	}
 	return PJ_TRUE;
 }
@@ -1301,8 +1321,10 @@ static void call_on_state_changed( pjsip_inv_session *inv, pjsip_event *e) {
 			if (status == PJ_SUCCESS && tdata)
 				status = pjsip_inv_send_msg(inv, tdata);
 		}
+	} else if (inv->state == PJSIP_INV_STATE_CONNECTING) {
+		report_completion(200, &e->body.tsx_state.tsx->method.name, &inv->dlg->call_id->id);
 	} else if (inv->state == PJSIP_INV_STATE_DISCONNECTED) {
-		report_completion(inv->cause);
+		report_completion(inv->cause, &e->body.tsx_state.tsx->method.name, &inv->dlg->call_id->id);
 		inv->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
 		if (inv->mod_data[mod_callcontrol.id]) {
 			PJ_LOG(4, (THIS_FILE, "cancelling hangup timer"));
@@ -1951,7 +1973,7 @@ static pj_status_t submit_stateless_job(void) {
 					NULL, -1, NULL, &tdata);
     if (status != PJ_SUCCESS) {
 	app_perror(THIS_FILE, "Error creating request", status);
-	report_completion(701);
+	report_completion(701, NULL, NULL);
 	return status;
     }
 
@@ -1959,7 +1981,7 @@ static pj_status_t submit_stateless_job(void) {
     if (status != PJ_SUCCESS) {
 	pjsip_tx_data_dec_ref(tdata);
 	app_perror(THIS_FILE, "Error sending stateless request", status);
-	report_completion(701);
+	report_completion(701, NULL, NULL);
 	return status;
     }
 
@@ -1983,14 +2005,14 @@ static void tsx_completion_cb(void *token, pjsip_event *event) {
 	}
 
 	if (tsx->state==PJSIP_TSX_STATE_TERMINATED) {
-		report_completion(tsx->status_code);
+		report_completion(tsx->status_code, &tsx->method.name, NULL);
 		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
 	} else if (tsx->method.id == PJSIP_INVITE_METHOD &&
 		tsx->state == PJSIP_TSX_STATE_CONFIRMED) {
-		report_completion(tsx->status_code);
+		report_completion(tsx->status_code, &tsx->method.name, NULL);
 		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
 	} else if (tsx->state == PJSIP_TSX_STATE_COMPLETED) {
-		report_completion(tsx->status_code);
+		report_completion(tsx->status_code, &tsx->method.name, NULL);
 		tsx->mod_data[mod_test.id] = (void*)(pj_ssize_t)1;
 		TERMINATE_TSX(tsx, tsx->status_code);
 	}
@@ -2007,7 +2029,7 @@ static pj_status_t submit_job(void) {
 					NULL, -1, NULL, &tdata);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "Error creating request", status);
-		report_completion(701);
+		report_completion(701, NULL, NULL);
 		return status;
 	}
 
@@ -2423,23 +2445,34 @@ int main(int argc, char *argv[]) {
 		pj_ansi_snprintf(
 		    report, sizeof(report),
 		    "Total %d %s sent in %d ms at rate of %d/sec\n"
-		    "Total %d responses received in %d ms at rate of %d/sec:",
+		    "Total %d connection responses received in %d ms at rate of %d/sec:",
 		    app.client.job_submitted, test_type, msec_req, 
 		    app.client.job_submitted * 1000 / msec_req,
-		    app.client.total_responses, msec_res,
-		    app.client.total_responses*1000/msec_res);
+		    app.client.connection_total_responses, msec_res,
+		    app.client.connection_total_responses*1000/msec_res);
 		write_report(report);
 
 		/* Print detailed response code received */
-		pj_ansi_sprintf(report, "\nDetailed responses received:");
+		pj_ansi_sprintf(report, "\nDetailed connection responses received:");
 		write_report(report);
-
+		for (i=0; i<PJ_ARRAY_SIZE(app.client.connection_response_codes); ++i) {
+			const pj_str_t *reason;
+			if (app.client.connection_response_codes[i] == 0) continue;
+			reason = pjsip_get_status_text(i);
+			pj_ansi_snprintf( report, sizeof(report),
+				      " - %d connection responses:  %7d     (%.*s)",
+				      i, app.client.connection_response_codes[i],
+				      (int)reason->slen, reason->ptr);
+			write_report(report);
+		}
+		pj_ansi_sprintf(report, "\nDetailed disconnection responses received:");
+		write_report(report);
 		for (i=0; i<PJ_ARRAY_SIZE(app.client.response_codes); ++i) {
 			const pj_str_t *reason;
 			if (app.client.response_codes[i] == 0) continue;
 			reason = pjsip_get_status_text(i);
 			pj_ansi_snprintf( report, sizeof(report),
-				      " - %d responses:  %7d     (%.*s)",
+				      " - %d disconnection responses:  %7d     (%.*s)",
 				      i, app.client.response_codes[i],
 				      (int)reason->slen, reason->ptr);
 			write_report(report);
