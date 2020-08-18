@@ -25,7 +25,7 @@ It can also read a json configuration file and randomize numbers.
    --trying \              # when receiving invite 100 trying will be send
    --ringing \             # when receiving invite 183 will be sent
    --thread-count=4 \      # number of server threads created
-   --duration=10000       # ringing delay 1 second
+   --delay=1500            # ringing delay in MS 1.5 second
 ```
 ### Example : starting a client
 
