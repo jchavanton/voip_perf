@@ -763,26 +763,30 @@ static pjsip_module mod_callcontrol =
 
 static void report_completion(int status_code, pj_str_t *method, pj_str_t* call_id)
 {
-	if (method && status_code != 200) {
-		if (call_id) {
-			PJ_LOG(3,(THIS_FILE, "%s[%.*s][%.*s][%d]", __FUNCTION__, method->slen, method->ptr, call_id->slen, call_id->ptr, status_code));
-		} else {
-			PJ_LOG(3,(THIS_FILE, "%s[%.*s][UNKNOWN]", __FUNCTION__, method->slen, method->ptr, status_code));
-		}
-	}
 	const pj_str_t str_invite = { "INVITE", 6 };
+	const pj_str_t str_bye = { "BYE", 3 };
 	if (pj_strcmp(method, &str_invite) == 0 ) {
-		app.client.job_connected++;
+		if (status_code >= 200 && status_code < 300)
+			app.client.job_connected++;
+		else if (status_code >= 300)
+			app.client.job_finished++;
 		if (status_code >= 200 && status_code < 800)
 			app.client.connection_response_codes[status_code]++;
 		app.client.connection_total_responses++;
 		pj_gettimeofday(&app.client.last_connection);
-	} else {
+	} else if (pj_strcmp(method, &str_bye) == 0) {
 		app.client.job_finished++;
 		if (status_code >= 200 && status_code < 800)
 			app.client.response_codes[status_code]++;
 		app.client.total_responses++;
 		pj_gettimeofday(&app.client.last_completion);
+	}
+	if (method && status_code != 200) {
+		if (call_id) {
+			PJ_LOG(3,(THIS_FILE, "%s[%.*s][%.*s][%d]completed[%d]", __FUNCTION__, method->slen, method->ptr, call_id->slen, call_id->ptr, status_code, app.client.job_finished));
+		} else {
+			PJ_LOG(3,(THIS_FILE, "%s[%.*s][UNKNOWN]completed[%d]", __FUNCTION__, method->slen, method->ptr, status_code, app.client.job_finished));
+		}
 	}
 }
 
