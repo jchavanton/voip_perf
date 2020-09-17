@@ -65,6 +65,7 @@
 #include <jansson.h>
 
 #include "custom_headers.h"
+#include "voip_perf.h"
 #include "version.h"
 #include <signal.h>
 
@@ -119,50 +120,7 @@ static pj_str_t dummy_sdp_str = {
 static pj_str_t mime_application = { "application", 11};
 static pj_str_t mime_sdp = {"sdp", 3};
 
-typedef struct  {
-	int32_t min;
-	int32_t max;
-	//float current; // Current value, may not be computed yet
-	float average; // average for N-1
-	float stdev;   // last standard deviation
-	float last_q;  // q for N-1
-	int32_t count;
-	//float recent_average;
-	//float first_average;
-} voip_perf_metric_t;
-
-typedef struct responses {
-	int code;
-	pj_str_t reason;
-	int prob; // probability in percentage
-} responses_t;
-
-typedef struct extra_header {
-	pj_str_t name;
-	pj_str_t value;
-} extra_header_t;
-
-typedef struct user {
-	pj_str_t ruri; // the RURI used when calling with this user
-} user_t;
-
-struct srv_state {
-	unsigned stateless_cnt;
-	unsigned stateful_cnt;
-	unsigned call_cnt;
-};
-
-typedef struct cps_period {
-	pj_time_val start;      // start ts of the period
-	pj_time_val last_sleep; // ms when we last waited, to double check if we where interupted
-	int call_count_ms;      // call count in the current ms
-	int call_count;         // call count in the current period
-	float cps;              // target cps, fixed
-	float cpms;             // current target call per ms, adjusted frequently
-} cps_period_t;
-
 struct app {
-
 	pj_caching_pool cp;
 	pj_pool_t *pool;
 	pj_bool_t use_tcp;
@@ -1352,17 +1310,23 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	pj_gettimeofday(&now); // profiling check
 
 	pj_str_t target_uri;
+
+	extra_header_t *extra_headers_user = NULL;
+	int extra_headers_user_count = 0;
 	// json users list
 	if (app.client.users_count) {
 		user_t *u = &app.client.users[app.client.current_user];
 		target_uri.ptr = strndup(u->ruri.ptr, u->ruri.slen);
 		target_uri.slen = u->ruri.slen;
+		extra_headers_user = u->headers;
+		extra_headers_user_count = u->headers_count;
 		app.client.current_user++;
 		if (app.client.current_user >= app.client.users_count)
 			app.client.current_user = 0;
 	} else {
 		target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
 		target_uri.slen = dst_uri->slen;
+		extra_headers_user_count = 0;
 	}
 
 	// random calledid
@@ -1432,6 +1396,16 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		h = pjsip_generic_string_hdr_create(dlg->pool, &extra_headers->name, &extra_headers->value);
 		pj_list_push_back(&dlg->inv_hdr, h);
 		extra_headers++;
+	}
+
+	PJ_LOG(5, (THIS_FILE, "user extra headers[%d]\n", extra_headers_user_count));
+	printf("user extra headers[%d][%d|%d]\n", extra_headers_user_count, (int)extra_headers_user->value.slen, (int)extra_headers_user->name.slen);
+	printf("user extra header value[%.*s]\n", (int)extra_headers_user->value.slen,extra_headers_user->value.ptr);
+	for (x=0; x<extra_headers_user_count ; x++) {
+		pjsip_generic_string_hdr *h;
+		h = pjsip_generic_string_hdr_create(dlg->pool, &extra_headers_user->name, &extra_headers_user->value);
+		pj_list_push_back(&dlg->inv_hdr, h);
+		extra_headers_user++;
 	}
 
 	/* Create initial INVITE request.
@@ -1602,6 +1576,7 @@ err:
 	printf("[%s] error loading config\n", __FUNCTION__);
 }
 
+
 static void load_json_config_users(json_t *users_json) {
 	if (!users_json) return;
 	app.client.users_count = json_array_size(users_json);
@@ -1609,7 +1584,7 @@ static void load_json_config_users(json_t *users_json) {
 	user_t *users = app.client.users;
 	printf("list users x%d\n", app.client.users_count);
 	json_t *e;
-	int i = 0;
+	int i=0;
 	while (e = json_array_get(users_json, i)) {
 		void *iter = json_object_iter(e);
 		while (iter) {
@@ -1618,44 +1593,48 @@ static void load_json_config_users(json_t *users_json) {
 				json_t *v = json_object_iter_value(iter);
 				pj_strdup2(app.pool, &users->ruri, json_string_value(v));
 				PJ_LOG(5,(THIS_FILE,"user[%s: %s]", key, app.client.users[i].ruri));
-				users++;
+
+			} else if (strcmp(key, "extra-headers") == 0) {
+				json_t *v = json_object_iter_value(iter);
+				users->headers = load_json_config_extra_headers(v, &users->headers_count);
 			}
 			iter = json_object_iter_next(e, iter);
+			if (!iter) users++;
 		}
 		i++;
 	}
 }
 
-static void load_json_config_extra_headers(json_t *extra_headers_json) {
-	json_t *e = json_array_get(extra_headers_json, 0);
-	if (e) {
-		void *iter = json_object_iter(e);
-		while (iter) {
-			iter = json_object_iter_next(e, iter);
-			app.client.custom_headers_count++;
-		}
+extra_header_t * load_json_config_extra_headers(json_t *extra_headers_json, int *count) {
+	extra_header_t *extra_headers = NULL;
+	extra_header_t *tmp = NULL;
+
+	if (!extra_headers_json) return extra_headers;
+	*count = 0;
+	void *iter = json_object_iter(extra_headers_json);
+	while (iter) {
+		iter = json_object_iter_next(extra_headers_json, iter);
+		(*count)++;
 	}
-	printf("extra-headers x%d\n", app.client.custom_headers_count);
-	app.client.extra_headers = pj_pool_zalloc(app.pool, sizeof(extra_header_t) * app.client.custom_headers_count);
-	e = json_array_get(extra_headers_json, 0);
-	extra_header_t *extra_headers = app.client.extra_headers;
-	if (e) {
-		void *iter = json_object_iter(e);
-		while (iter) {
-			const char *key = json_object_iter_key(iter);
-			json_t *v = json_object_iter_value(iter);
-			if (json_is_string(v)) {
-				printf("extra-header[%s: %s]\n", key, json_string_value(v));
-				pjsip_generic_string_hdr *h;
-				pj_str_t hname, hvalue;
-				pj_strdup2(app.pool, &extra_headers->name, key);
-				pj_strdup2(app.pool, &extra_headers->value, json_string_value(v));
-				extra_headers++;
-			}
-			iter = json_object_iter_next(e, iter);
+	printf(">> extra-headers x%d\n", *count);
+	if (*count == 0) return extra_headers;
+	iter = json_object_iter(extra_headers_json);
+	extra_headers = (extra_header_t *) pj_pool_zalloc(app.pool, sizeof(extra_header_t) * (*count));
+	tmp = extra_headers;
+	while (iter) {
+		const char *key = json_object_iter_key(iter);
+		json_t *v = json_object_iter_value(iter);
+		if (json_is_string(v)) {
+			printf("extra-header[%s: %s]\n", key, json_string_value(v));
+			pjsip_generic_string_hdr *h;
+			pj_str_t hname, hvalue;
+			pj_strdup2(app.pool, &tmp->name, key);
+			pj_strdup2(app.pool, &tmp->value, json_string_value(v));
 		}
+		iter = json_object_iter_next(extra_headers_json, iter);
+		if (iter) tmp++;
 	}
-	return;
+	return extra_headers;
 err:
 	app.client.custom_headers_count = 0;
 	printf("[%s] error loading config\n", __FUNCTION__);
@@ -1708,7 +1687,7 @@ static int load_json_config (char *fn) {
 							const char *client_key = json_object_iter_key(client_iter);
 							json_t *client_value = json_object_iter_value(client_iter);
 							if (strcmp(client_key, "extra-headers") == 0) {
-								if (json_is_array(client_value)) load_json_config_extra_headers(client_value);
+								app.client.extra_headers = load_json_config_extra_headers(client_value, &app.client.custom_headers_count);
 							}
 							if (strcmp(client_key, "users") == 0) {
 								if (json_is_array(client_value)) load_json_config_users(client_value);

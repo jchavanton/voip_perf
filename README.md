@@ -70,34 +70,49 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
 ```
 
 ### Example : config in json file
-
 ```json
 {
-	"server" : [
-		{
-			"response" : [
-				{ "code" : 200,
-				  "reason" : "OK",
-				  "probability" : 1.0
-				}
-			]
-		}
-	],
-	"client" : [
-		{
-			"extra-headers" : [
-				{ "Foo" : "Bar",
-				  "Bar" : "Foo"
-				}
-			]
-		},{
-			"users" : [
-				{ "ruri" : "sip:1106388????@192.168.10.10" },
-				{ "ruri" : "sip:1206388????@192.168.11.11" },
-				{ "ruri" : "sip:1306388????@192.168.10.10:5060" }
-			]
-		}
-	]
+  "server" : [
+    {
+      "response" : [
+        { "code" : 200,
+          "reason" : "OK",
+          "probability" : 1.0
+        }
+      ]
+    }
+  ],
+  "client": [
+    {
+      "extra-headers": {
+        "Foo": "Bar",
+        "Bar": "Foo"
+      }
+    },
+    {
+      "users": [
+        {
+          "ruri": "sip:12063??????@192.168.10.10",
+          "extra-headers": {
+            "Bar": "Open"
+          }
+        },
+        {
+          "ruri": "sip:12063??????@192.168.10.10",
+          "extra-headers": {
+            "Bar": "Close"
+          }
+        },
+        {
+          "ruri": "sip:12063??????@192.168.10.10",
+          "extra-headers": {
+            "VIP": "True",
+            "Bar": "Open"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
