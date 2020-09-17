@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
  * Copyright (C) 2017-2018 Julien Chavanton <jchavanton@gmail.com>
@@ -1398,9 +1398,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		extra_headers++;
 	}
 
-	PJ_LOG(5, (THIS_FILE, "user extra headers[%d]\n", extra_headers_user_count));
-	printf("user extra headers[%d][%d|%d]\n", extra_headers_user_count, (int)extra_headers_user->value.slen, (int)extra_headers_user->name.slen);
-	printf("user extra header value[%.*s]\n", (int)extra_headers_user->value.slen,extra_headers_user->value.ptr);
+	PJ_LOG(4, (THIS_FILE, "user extra headers[%d]\n", extra_headers_user_count));
 	for (x=0; x<extra_headers_user_count ; x++) {
 		pjsip_generic_string_hdr *h;
 		h = pjsip_generic_string_hdr_create(dlg->pool, &extra_headers_user->name, &extra_headers_user->value);
