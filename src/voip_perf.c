@@ -1114,8 +1114,8 @@ static void metric_check_period(pj_bool_t end_now) {
 				app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max,
 				app.latency_metrics[1].count, app.latency_metrics[1].average, app.latency_metrics[1].stdev, app.latency_metrics[1].max,
 				app.latency_metrics[2].count, app.latency_metrics[2].average, app.latency_metrics[2].stdev, app.latency_metrics[2].max);
-		PJ_LOG(1, (THIS_FILE, "metric_period[%lld]job:count[%d]submitted[%d]connected[%d]job_finished[%d]window[%d]",
-	                  period.sec, app.client.job_count, app.client.job_submitted, app.client.job_connected, app.client.job_finished, app.client.job_window));
+		PJ_LOG(1, (THIS_FILE, "metric_period[%lld]job:count[%d/%d]submitted[%d]connected[%d]window[%d]",
+	                  period.sec, app.client.job_finished, app.client.job_count, app.client.job_submitted, app.client.job_connected, app.client.job_window));
 		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
 	                   app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max));
 		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
