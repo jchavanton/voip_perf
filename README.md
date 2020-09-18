@@ -77,7 +77,11 @@ This will send one INVITE to a randomise number starting with +1206?????? to ser
       "response" : [
         { "code" : 200,
           "reason" : "OK",
-          "probability" : 1.0
+          "probability" : 0.7
+        },
+        { "code" : 404,
+          "reason" : "Not found",
+          "probability" : 0.3
         }
       ]
     }

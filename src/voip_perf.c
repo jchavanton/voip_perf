@@ -134,6 +134,7 @@ struct app {
 	unsigned skinfo_cnt;
 	pjmedia_sock_info skinfo[8];
 	pj_bool_t thread_quit;
+	pj_bool_t client_mode;
 	unsigned thread_count;
 	pj_thread_t *thread[16];
 	pj_bool_t real_sdp;
@@ -188,7 +189,9 @@ struct app {
 	voip_perf_metric_t latency_metrics[3];
 	// latency_metrics[3];
 	pj_time_val latency_metrics_period_start;
+	pj_time_val status_metrics_period_start;
 	int latency_metrics_period_duration;
+	int status_metrics_period_duration;
 
 	pj_lock_t *stats_lock;
 	pj_lock_t *cps_lock;
@@ -783,9 +786,9 @@ static void report_completion(int status_code, pj_str_t *method, pj_str_t* call_
 	}
 	if (method && status_code != 200) {
 		if (call_id) {
-			PJ_LOG(3,(THIS_FILE, "%s[%.*s][%.*s][%d]completed[%d]", __FUNCTION__, method->slen, method->ptr, call_id->slen, call_id->ptr, status_code, app.client.job_finished));
+			PJ_LOG(4,(THIS_FILE, "%s[%.*s][%.*s][%d]completed[%d]", __FUNCTION__, method->slen, method->ptr, call_id->slen, call_id->ptr, status_code, app.client.job_finished));
 		} else {
-			PJ_LOG(3,(THIS_FILE, "%s[%.*s][UNKNOWN]completed[%d]", __FUNCTION__, method->slen, method->ptr, status_code, app.client.job_finished));
+			PJ_LOG(4,(THIS_FILE, "%s[%.*s][UNKNOWN]completed[%d]", __FUNCTION__, method->slen, method->ptr, status_code, app.client.job_finished));
 		}
 	}
 }
@@ -808,6 +811,9 @@ static pj_status_t create_app(void) {
 		app_perror(THIS_FILE, "Error initializing pjlib", status);
 		return status;
 	}
+
+	/* init settings */
+	app.client_mode = PJ_FALSE;
 
 	/* init PJLIB-UTIL: */
 	status = pjlib_util_init();
@@ -1085,6 +1091,17 @@ static void call_on_media_update( pjsip_inv_session *inv,
     }
 }
 
+static void status_check_period(pj_bool_t end_now) {
+	pj_time_val period;
+	pj_gettimeofday(&period);
+	int seconds = period.sec;
+	PJ_TIME_VAL_SUB(period, app.status_metrics_period_start);
+	if (end_now || period.sec >= app.status_metrics_period_duration) {
+		pj_gettimeofday(&app.status_metrics_period_start);
+		print_detailed_response_code_received(PJ_TRUE);
+	}
+}
+
 static void metric_check_period(pj_bool_t end_now) {
 	pj_time_val period;
 	pj_gettimeofday(&period);
@@ -1097,7 +1114,8 @@ static void metric_check_period(pj_bool_t end_now) {
 				app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max,
 				app.latency_metrics[1].count, app.latency_metrics[1].average, app.latency_metrics[1].stdev, app.latency_metrics[1].max,
 				app.latency_metrics[2].count, app.latency_metrics[2].average, app.latency_metrics[2].stdev, app.latency_metrics[2].max);
-		PJ_LOG(1, (THIS_FILE, "metric_period[%lld]", period.sec));
+		PJ_LOG(1, (THIS_FILE, "metric_period[%lld]job:count[%d]submitted[%d]connected[%d]job_finished[%d]window[%d]",
+	                  period.sec, app.client.job_count, app.client.job_submitted, app.client.job_connected, app.client.job_finished, app.client.job_window));
 		PJ_LOG(1, (THIS_FILE, "INVITE-100 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
 	                   app.latency_metrics[0].count, app.latency_metrics[0].average, app.latency_metrics[0].stdev, app.latency_metrics[0].max));
 		PJ_LOG(1, (THIS_FILE, "INVITE-180 count[%d] avg[%.1fms]std[%0.1fms]max[%dms]",
@@ -1173,7 +1191,6 @@ static void metric_update(pjsip_transaction *tsx, unsigned status_code, pj_str_t
 	PJ_LOG(4, (THIS_FILE, "metric_update [%lld.%lld] [%.*s][%d]count[%d]value[%d]avg[%.4f]std[%.4f]",
                                now.sec, now.msec, method->slen, method->ptr, status_code,
                                app.latency_metrics[idx].count, latency, app.latency_metrics[idx].average, app.latency_metrics[idx].stdev));
-
 	metric_check_period(PJ_FALSE);
 }
 
@@ -1584,7 +1601,8 @@ static void load_json_config_users(json_t *users_json) {
 	app.client.users_count = json_array_size(users_json);
 	app.client.users = pj_pool_zalloc(app.pool, sizeof(user_t) * app.client.users_count);
 	user_t *users = app.client.users;
-	printf("list users x%d\n", app.client.users_count);
+	if (app.client.users_count > 0) app.client_mode = PJ_TRUE;
+	printf("list users x%d, enabling client mode\n", app.client.users_count);
 	json_t *e;
 	int i=0;
 	while (e = json_array_get(users_json, i)) {
@@ -1761,6 +1779,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.client.custom_headers_count = 0;
 	app.client.extra_headers = NULL;
 	app.latency_metrics_period_duration = 0;
+	app.status_metrics_period_duration = 0;
 	app.log_level = 3;
 	app.server.responses = NULL;
 	app.server.responses_count = 0;
@@ -1868,6 +1887,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			break;
 		case OPT_INTERVAL:
 			app.latency_metrics_period_duration = my_atoi(pj_optarg);
+			app.status_metrics_period_duration = my_atoi(pj_optarg);
 			if (app.latency_metrics_period_duration < 1) {
 				PJ_LOG(3,(THIS_FILE, "Invalid --interval %s", pj_optarg));
 				return -1;
@@ -2075,6 +2095,7 @@ static int client_thread(void *arg) {
 
 		pj_time_val start;
 		pj_gettimeofday(&start);
+		if (thread_index == 0) status_check_period(PJ_FALSE);
 
 		// cps_period.calls_count_period
 		// INIT
@@ -2302,13 +2323,15 @@ static int server_thread(void *arg)
     return 0;
 }
 
-static void write_report(const char *msg)
-{
-    puts(msg);
-
+static void write_report(const char *msg, pj_bool_t log) {
+	if (log) {
+		PJ_LOG(1, (THIS_FILE, "%s", msg));
+		return;
+	}
+	puts(msg);
 #if (defined(PJ_WIN32) && PJ_WIN32!=0) || (defined(PJ_WIN64) && PJ_WIN64!=0)
-    OutputDebugString(msg);
-    OutputDebugString("\n");
+	OutputDebugString(msg);
+	OutputDebugString("\n");
 #endif
 }
 
@@ -2318,6 +2341,38 @@ void handle_sigint(int sig) {
 	printf("Caught signal %d\n", sig);
 	fflush(stdout);
 	destroy_app();
+}
+
+void print_detailed_response_code_received(pj_bool_t log) {
+	static char report[1024];
+	int i;
+
+	/* Print detailed response code received */
+	pj_ansi_sprintf(report, ">> Detailed connection responses received:");
+	write_report(report, log);
+	for (i=0; i<PJ_ARRAY_SIZE(app.client.connection_response_codes); ++i) {
+		const pj_str_t *reason;
+		if (app.client.connection_response_codes[i] == 0) continue;
+		reason = pjsip_get_status_text(i);
+		pj_ansi_snprintf( report, sizeof(report),
+			      " - %d connection responses:  %7d     (%.*s)",
+			      i, app.client.connection_response_codes[i],
+			      (int)reason->slen, reason->ptr);
+
+		write_report(report, log);
+	}
+	pj_ansi_sprintf(report, ">> Detailed disconnection responses received:");
+	write_report(report, log);
+	for (i=0; i<PJ_ARRAY_SIZE(app.client.response_codes); ++i) {
+		const pj_str_t *reason;
+		if (app.client.response_codes[i] == 0) continue;
+		reason = pjsip_get_status_text(i);
+		pj_ansi_snprintf( report, sizeof(report),
+			      " - %d disconnection responses:  %7d     (%.*s)",
+			      i, app.client.response_codes[i],
+			      (int)reason->slen, reason->ptr);
+		write_report(report, log);
+	}
 }
 
 int main(int argc, char *argv[]) {
@@ -2332,7 +2387,6 @@ int main(int argc, char *argv[]) {
 	if (init_sip() != 0) return 1;
 	if (init_media() != 0) return 1;
 
-
 	if (app.log_level > 4) {
 		pjsip_endpt_register_module(app.sip_endpt, &msg_logger);
 	}
@@ -2346,7 +2400,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	if (app.client.dst_uri.slen) {
+	if (app.client.dst_uri.slen || app.client_mode) {
 		/* Client mode */
 		pj_status_t status;
 		char test_type[64];
@@ -2362,6 +2416,7 @@ int main(int argc, char *argv[]) {
 			app_perror(THIS_FILE, "unable to create lock", status);
 		}
 		pj_gettimeofday(&app.latency_metrics_period_start);
+		pj_gettimeofday(&app.status_metrics_period_start);
 		log_stats_output = fopen(app.latency_fn.ptr, "w+");
 		fflush(log_stats_output);
 		fprintf(log_stats_output,"TIMESTAMP,METHOD,100-CNT,100-AVG,100-STD,100-MAX,180-CNT,180-AVG,180-STD,180-MAX,200-CNT,200-AVG,200-STD,200-MAX\n");
@@ -2431,33 +2486,9 @@ int main(int argc, char *argv[]) {
 		    app.client.job_submitted * 1000 / msec_req,
 		    app.client.connection_total_responses, msec_res,
 		    app.client.connection_total_responses*1000/msec_res);
-		write_report(report);
+		write_report(report, PJ_FALSE);
 
-		/* Print detailed response code received */
-		pj_ansi_sprintf(report, "\nDetailed connection responses received:");
-		write_report(report);
-		for (i=0; i<PJ_ARRAY_SIZE(app.client.connection_response_codes); ++i) {
-			const pj_str_t *reason;
-			if (app.client.connection_response_codes[i] == 0) continue;
-			reason = pjsip_get_status_text(i);
-			pj_ansi_snprintf( report, sizeof(report),
-				      " - %d connection responses:  %7d     (%.*s)",
-				      i, app.client.connection_response_codes[i],
-				      (int)reason->slen, reason->ptr);
-			write_report(report);
-		}
-		pj_ansi_sprintf(report, "\nDetailed disconnection responses received:");
-		write_report(report);
-		for (i=0; i<PJ_ARRAY_SIZE(app.client.response_codes); ++i) {
-			const pj_str_t *reason;
-			if (app.client.response_codes[i] == 0) continue;
-			reason = pjsip_get_status_text(i);
-			pj_ansi_snprintf( report, sizeof(report),
-				      " - %d disconnection responses:  %7d     (%.*s)",
-				      i, app.client.response_codes[i],
-				      (int)reason->slen, reason->ptr);
-			write_report(report);
-		}
+		print_detailed_response_code_received(PJ_FALSE);
 
 		/* Total responses and rate */
 		pj_ansi_snprintf( report, sizeof(report),
@@ -2466,9 +2497,9 @@ int main(int argc, char *argv[]) {
 		    app.client.total_responses,
 		    app.client.total_responses*1000/msec_res);
 
-		write_report(report);
+		write_report(report, PJ_FALSE);
 		pj_ansi_sprintf(report, "Maximum outstanding job: %d", app.client.stat_max_window);
-		write_report(report);
+		write_report(report, PJ_FALSE);
 
 	} else {
 		/* Server mode */

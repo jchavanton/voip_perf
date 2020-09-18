@@ -42,6 +42,7 @@ typedef struct extra_header {
 } extra_header_t;
 
 extra_header_t * load_json_config_extra_headers(json_t *extra_headers_json, int *extra_headers_count);
+void print_detailed_response_code_received();
 
 typedef struct user {
 	pj_str_t ruri; // the RURI used when calling with this user
