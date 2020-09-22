@@ -1341,7 +1341,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		user_t *u = &app.client.users[app.client.current_user];
 		target_uri.ptr = strndup(u->ruri.ptr, u->ruri.slen);
 		target_uri.slen = u->ruri.slen;
-		if(u->furi != NULL){
+		if(u->furi.ptr != NULL){
 			local_uri.ptr = strndup(u->furi.ptr, u->furi.slen);
 			local_uri.slen = u->furi.slen;
 		}
@@ -1627,6 +1627,7 @@ static void load_json_config_users(json_t *users_json) {
 				users->headers = load_json_config_extra_headers(v, &users->headers_count);
 			}
 			} else if (strcmp(key, "furi") == 0) {
+				PJ_LOG(3,(THIS_FILE,"SAL-load1"));
 				json_t *v = json_object_iter_value(iter);
 				pj_strdup2(app.pool, &users->furi, json_string_value(v));
 				PJ_LOG(5,(THIS_FILE,"user[%s: %s]", key, app.client.users[i].furi));
