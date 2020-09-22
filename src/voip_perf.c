@@ -1625,7 +1625,6 @@ static void load_json_config_users(json_t *users_json) {
 			} else if (strcmp(key, "extra-headers") == 0) {
 				json_t *v = json_object_iter_value(iter);
 				users->headers = load_json_config_extra_headers(v, &users->headers_count);
-			}
 			} else if (strcmp(key, "furi") == 0) {
 				PJ_LOG(3,(THIS_FILE,"SAL-load1"));
 				json_t *v = json_object_iter_value(iter);
