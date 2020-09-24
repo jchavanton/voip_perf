@@ -1321,7 +1321,6 @@ static void call_on_forked(pjsip_inv_session *inv, pjsip_event *e) {
 
 /* Make outgoing call */
 static pj_status_t make_call(const pj_str_t *dst_uri) {
-	PJ_LOG(3,(THIS_FILE, "SAL-voip_perf:make_call"));
 	struct call *call;
 	pjsip_dialog *dlg;
 	pjmedia_sdp_session *sdp;
