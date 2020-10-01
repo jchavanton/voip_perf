@@ -1331,6 +1331,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	pj_gettimeofday(&now); // profiling check
 
 	pj_str_t target_uri;
+	pj_str_t local_uri;
 
 	extra_header_t *extra_headers_user = NULL;
 	int extra_headers_user_count = 0;
@@ -1339,6 +1340,13 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		user_t *u = &app.client.users[app.client.current_user];
 		target_uri.ptr = strndup(u->ruri.ptr, u->ruri.slen);
 		target_uri.slen = u->ruri.slen;
+		if(u->furi.slen != 0){
+			local_uri.ptr = strndup(u->furi.ptr, u->furi.slen);
+			local_uri.slen = u->furi.slen;
+		} else {
+			local_uri.ptr = strndup(app.local_uri.ptr, app.local_uri.slen);
+			local_uri.slen = app.local_uri.slen;
+		}
 		extra_headers_user = u->headers;
 		extra_headers_user_count = u->headers_count;
 		app.client.current_user++;
@@ -1347,6 +1355,10 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	} else {
 		target_uri.ptr = strndup(dst_uri->ptr, dst_uri->slen);
 		target_uri.slen = dst_uri->slen;
+
+		local_uri.ptr = strndup(app.local_uri.ptr, app.local_uri.slen);
+		local_uri.slen = app.local_uri.slen;
+
 		extra_headers_user_count = 0;
 	}
 
@@ -1360,11 +1372,6 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 			ret[0] = digit[rand()%9];
 		}
 	} while (ret);
-	// random callerid
-
-	pj_str_t local_uri;
-	local_uri.ptr = strndup(app.local_uri.ptr, app.local_uri.slen);
-	local_uri.slen = app.local_uri.slen;
 
 	do {
 		ret = strstr(local_uri.ptr, c);
@@ -1613,10 +1620,13 @@ static void load_json_config_users(json_t *users_json) {
 				json_t *v = json_object_iter_value(iter);
 				pj_strdup2(app.pool, &users->ruri, json_string_value(v));
 				PJ_LOG(5,(THIS_FILE,"user[%s: %s]", key, app.client.users[i].ruri));
-
 			} else if (strcmp(key, "extra-headers") == 0) {
 				json_t *v = json_object_iter_value(iter);
 				users->headers = load_json_config_extra_headers(v, &users->headers_count);
+			} else if (strcmp(key, "furi") == 0) {
+				json_t *v = json_object_iter_value(iter);
+				pj_strdup2(app.pool, &users->furi, json_string_value(v));
+				PJ_LOG(5,(THIS_FILE,"user[%s: %s]", key, app.client.users[i].furi));
 			}
 			iter = json_object_iter_next(e, iter);
 			if (!iter) users++;

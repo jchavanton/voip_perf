@@ -46,6 +46,7 @@ void print_detailed_response_code_received();
 
 typedef struct user {
 	pj_str_t ruri; // the RURI used when calling with this user
+	pj_str_t furi; // the from URI used when calling with this user
 	extra_header_t *headers;
 	int headers_count;
 } user_t;
