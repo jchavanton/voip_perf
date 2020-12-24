@@ -1380,6 +1380,9 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		}
 	} while (ret);
 
+	// contact same as from-uri
+	app.local_contact = local_uri;
+
 	/* Create UAC dialog */
 	status = pjsip_dlg_create_uac( pjsip_ua_instance(), 
 				   &local_uri,		/* local URI	    */
