@@ -1,5 +1,5 @@
 #ifndef __VERSION_H__
 #define __VERSION_H__
 
-const char VERSION[] = "0.5.6";
+const char VERSION[] = "0.5.7";
 #endif

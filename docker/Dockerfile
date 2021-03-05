@@ -1,6 +1,6 @@
 FROM debian
 
-ENV VERSION=0.5.6
+ENV VERSION=0.5.7
 
 RUN echo "installing dependencies" && apt-get update \
         && apt-get install -y build-essential libcurl4-openssl-dev cmake pkg-config libasound2-dev \
