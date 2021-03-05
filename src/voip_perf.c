@@ -52,6 +52,7 @@
  */
 
 #define PJSIP_MAX_TSX_COUNT (131072-1)
+
 // PJSIP_MAX_TSX_COUNT
 /* Include all headers. */
 #include <pjsip.h>
@@ -120,6 +121,7 @@ static pj_str_t dummy_sdp_str = {
 static pj_str_t mime_application = { "application", 11};
 static pj_str_t mime_sdp = {"sdp", 3};
 
+
 struct app {
 	pj_caching_pool cp;
 	pj_pool_t *pool;
@@ -142,6 +144,7 @@ struct app {
 	int log_level;
 	pjsip_route_hdr route_set;
 	pj_str_t cfg_fn;
+	pj_bool_t disable_connection_reuse;
 	struct {
 		pjsip_method method;
 		pj_str_t dst_uri;
@@ -645,7 +648,6 @@ static pj_status_t logger_on_tx_msg(pjsip_tx_data *tdata)
      *	transport layer. So don't try to access tp_info when the module
      *	has lower priority than transport layer.
      */
-
     // 22:47:40.925   voip_perf.c  ...TX 824 bytes Request msg INVITE/cseq=124 (tdta0x7f25e40033b0) to UDP 147.75.69.1:5070:
     PJ_LOG(3,(THIS_FILE, "TX %d bytes %s to %s %s:%d:\n"
 			 "%.*s\n"
@@ -870,12 +872,19 @@ static pj_status_t init_sip() {
 		}
 	} else if (app.use_tls)  {
 		pjsip_tls_setting tls_settings;
-		pj_strdup2(app.pool, &tls_settings.cert_file, app.tls.cert.ptr);
-		pj_strdup2(app.pool, &tls_settings.privkey_file, app.tls.key.ptr);
-		pj_strdup2(app.pool, &tls_settings.ca_list_file, app.tls.calist.ptr);
-		pj_strdup2(app.pool, &tls_settings.ca_list_path, "");
-		pj_strdup2(app.pool, &tls_settings.password, app.tls.pass.ptr);
-		tls_settings.verify_server = PJ_TRUE;
+		pjsip_tls_setting_default(&tls_settings);
+		tls_settings.verify_server = PJ_FALSE;
+		if (app.tls.cert.ptr)
+			pj_strdup2(app.pool, &tls_settings.cert_file, app.tls.cert.ptr);
+		if (app.tls.key.ptr)
+			pj_strdup2(app.pool, &tls_settings.privkey_file, app.tls.key.ptr);
+		if (app.tls.calist.ptr) {
+			pj_strdup2(app.pool, &tls_settings.ca_list_file, app.tls.calist.ptr);
+			pj_strdup2(app.pool, &tls_settings.ca_list_path, "");
+			tls_settings.verify_server = PJ_TRUE;
+		}
+		if (app.tls.pass.ptr)
+			pj_strdup2(app.pool, &tls_settings.password, app.tls.pass.ptr);
 
 		pj_ssl_cipher ciphers[PJ_SSL_SOCK_MAX_CIPHERS];
 		unsigned count = PJ_ARRAY_SIZE(ciphers);
@@ -1083,7 +1092,6 @@ static void call_on_media_update( pjsip_inv_session *inv,
     if (status != PJ_SUCCESS) {
 	pjsip_tx_data *tdata;
 	pj_status_t status2;
-
 	status2 = pjsip_inv_end_session(inv, PJSIP_SC_UNSUPPORTED_MEDIA_TYPE,
 				       NULL, &tdata);
 	if (status2 == PJ_SUCCESS && tdata)
@@ -1394,6 +1402,8 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		return status;
 	}
 
+	if (app.disable_connection_reuse)
+		dlg->tp_sel.disable_connection_reuse = PJ_TRUE;
 
 	/* Create call */
 	call = pj_pool_zalloc(dlg->pool, sizeof(struct call));
@@ -1436,6 +1446,7 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 		pj_list_push_back(&dlg->inv_hdr, h);
 		extra_headers_user++;
 	}
+
 
 	/* Create initial INVITE request.
 	 * This INVITE request will contain a perfectly good request and 
@@ -1519,6 +1530,7 @@ static void usage(void) {
 	"Client and Server options:\n"
 	"   --config=filename.json  Set the json config file name\n"
 	"   --local-port=PORT       Set local port [default: 5060]\n"
+	"   --disable-connection-reuse  Create a new socket\n"
 	"   --use-tcp               Use TCP instead of UDP. Note that when started as\n"
 	"                           client, you must add ;transport=tcp parameter to URL\n"
 	"                           [default: no]\n"
@@ -1742,7 +1754,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
                OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_CONSOLE_MODE,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
-               OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_TLS_KEY,
+               OPT_TLS_CERT, OPT_USE_TCP, OPT_USE_TLS, OPT_DISABLE_CONNECTION_REUSE, OPT_TLS_KEY,
                OPT_TLS_PASS, OPT_TLS_CALIST, OPT_RURI, OPT_VERSION
         };
 	struct pj_getopt_option long_options[] = {
@@ -1764,6 +1776,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 		{ "verbose",        0, 0, OPT_VERBOSE },
 		{ "use-tcp",	    0, 0, OPT_USE_TCP },
 		{ "use-tls",	    0, 0, OPT_USE_TLS },
+		{ "disable-connection-reuse",    0, 0, OPT_DISABLE_CONNECTION_REUSE },
 		{ "window",	    1, 0, OPT_WINDOW },
 		{ "delay",	    1, 0, OPT_DELAY },
 		{ "duration",	    1, 0, OPT_DURATION },
@@ -1928,6 +1941,10 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			PJ_LOG(3,(THIS_FILE, "using tls transport"));
 			app.use_tls = PJ_TRUE;
 			break;
+		case OPT_DISABLE_CONNECTION_REUSE:
+			PJ_LOG(3,(THIS_FILE, "disabling connection reuse"));
+			app.disable_connection_reuse = PJ_TRUE;
+			break;
 		case OPT_DELAY:
 			app.server.delay = my_atoi(pj_optarg);
 			if (app.server.delay > 36000) {
@@ -1991,6 +2008,9 @@ static pj_status_t submit_stateless_job(void) {
 	return status;
     }
 
+	if (app.disable_connection_reuse)
+		tdata->tp_sel.disable_connection_reuse = PJ_TRUE;
+
     status = pjsip_endpt_send_request_stateless(app.sip_endpt, tdata, NULL, NULL);
     if (status != PJ_SUCCESS) {
 	pjsip_tx_data_dec_ref(tdata);
@@ -2046,7 +2066,8 @@ static pj_status_t submit_job(void) {
 		report_completion(701, NULL, NULL);
 		return status;
 	}
-
+	if (app.disable_connection_reuse)
+		tdata->tp_sel.disable_connection_reuse = PJ_TRUE;
 	status = pjsip_endpt_send_request(app.sip_endpt, tdata, -1, NULL, &tsx_completion_cb);
 	if (status != PJ_SUCCESS) {
 		app_perror(THIS_FILE, "Error sending stateful request", status);

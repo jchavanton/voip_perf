@@ -14,6 +14,7 @@ RUN echo "cloning VoIP Perf" \
         && git submodule update --init
 
 RUN echo "building (configure) PJLIB" && cd voip_perf \
+	&& cp include/config_site.h pjproject/pjlib/include/pj/config_site.h \
         && cd pjproject && ./configure --disable-libwebrtc
 
 RUN echo "building (make) PJLIB .." && cd voip_perf \
