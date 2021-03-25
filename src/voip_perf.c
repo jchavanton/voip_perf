@@ -1377,14 +1377,14 @@ static pj_status_t make_call(const pj_str_t *dst_uri) {
 	do {
 		ret = strstr(target_uri.ptr, c);
 			if (ret) {
-			ret[0] = digit[rand()%9];
+			ret[0] = digit[rand()%10];
 		}
 	} while (ret);
 
 	do {
 		ret = strstr(local_uri.ptr, c);
 			if (ret) {
-			ret[0] = digit[rand()%9];
+			ret[0] = digit[rand()%10];
 		}
 	} while (ret);
 
