@@ -1573,10 +1573,11 @@ static int add_proxy_route(const char *s) {
 	int len = strlen(s);
 	len += 7;
 	char *uri = pj_pool_zalloc(app.pool, sizeof(char) * len);
-	snprintf(uri, len, "sip:%s;lr", s);
+	snprintf(uri, len+1, "sip:%s;lr", s);
 	printf("adding Proxy : [%s|%d]\n", uri, len);
 	route = pjsip_parse_hdr(app.pool, &hname, uri, strlen(uri), NULL);
-	PJ_ASSERT_RETURN(route != NULL, 1);
+	PJ_ASSERT_RETURN(route != NULL, 0);
+	pj_list_push_back(&app.route_set, route);
 	return 1;
 }
 
