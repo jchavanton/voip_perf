@@ -517,6 +517,9 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	for (i=0;i< app.server.responses_count ;i++) {
 		printf("[%d %.*s] [%d/100]\n", app.server.responses[i].code, (int)app.server.responses[i].reason.slen, app.server.responses[i].reason.ptr, app.server.responses[i].prob);
 		if (x < (app.server.responses[i].prob+y)) {
+			if (app.server.responses[i].code == 0) { // 0 == drop
+				return PJ_TRUE;
+			}
 			if (app.server.responses[i].code == 487) {
 				/* Send 100/Trying if needed */
 				if (app.server.send_trying) {
