@@ -175,6 +175,7 @@ struct app {
 		pj_bool_t send_trying;
 		pj_bool_t send_ringing;
 		unsigned delay;
+		unsigned call_duration;
 		struct srv_state prev_state;
 		struct srv_state cur_state;
 		responses_t *responses;
@@ -207,6 +208,7 @@ struct call {
 	pjsip_inv_session *inv;
 	pj_timer_entry ans_timer;
 	pj_timer_entry cancel_timer;
+	pj_timer_entry hangup_timer;
 };
 
 typedef struct outbound_call {
@@ -219,6 +221,24 @@ static void app_perror(const char *sender, const char *title, pj_status_t status
 	pj_strerror(status, errmsg, sizeof(errmsg));
 	PJ_LOG(1,(sender, "%s: %s [code=%d]", title, errmsg, status));
 }
+
+/* Used to keep track of disconnection BYE timers */
+static pjsip_module mod_callcontrol =
+{
+    NULL, NULL,			    /* prev, next.		*/
+    { "mod-callcontrol", 9 },	    /* Name.			*/
+    -1,				    /* Id			*/
+    PJSIP_MOD_PRIORITY_APPLICATION, /* Priority			*/
+    NULL,			    /* load()			*/
+    NULL,			    /* start()			*/
+    NULL,			    /* stop()			*/
+    NULL,			    /* unload()			*/
+    NULL,			    /* on_rx_request()		*/
+    NULL,			    /* on_rx_response()		*/
+    NULL,			    /* on_tx_request.		*/
+    NULL,			    /* on_tx_response()		*/
+    NULL,			    /* on_tsx_state()		*/
+};
 
 /**************************************************************************
  * STATELESS SERVER
@@ -421,6 +441,22 @@ static void answer_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 	send_response(call->inv, NULL, 200, NULL, &has_initial);
 }
 
+static void hangup_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
+	struct call *call = entry->user_data;
+	PJ_UNUSED_ARG(h);
+	pjsip_tx_data *tdata;
+	pj_status_t status;
+	PJ_LOG(4, (THIS_FILE, "hangup_timer "));
+	if (call->inv->state == PJSIP_INV_STATE_CONFIRMED) {
+		status = pjsip_inv_end_session(call->inv, PJSIP_SC_OK, NULL, &tdata);
+		if (status == PJ_SUCCESS && tdata)
+			status = pjsip_inv_send_msg(call->inv, tdata);
+	} else {
+		PJ_LOG(1, (THIS_FILE, "can not hangup call in this state : %d", call->inv->state));
+	}
+	call->inv->mod_data[mod_callcontrol.id] = NULL;
+}
+
 static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	const pj_str_t call_user = { "2", 1 };
 	pjsip_uri *uri;
@@ -562,6 +598,20 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 		status = send_response(call->inv, rdata, 183, NULL, &has_initial);
 		if (status != PJ_SUCCESS)
 			return PJ_TRUE;
+	}
+
+	/* Set max call duration */
+	if (app.server.call_duration) {
+		pj_time_val delay;
+		call->hangup_timer.id = 1;
+		call->hangup_timer.user_data = call;
+		call->hangup_timer.cb = &hangup_timer_cb;
+		delay.sec = app.server.call_duration;
+		delay.msec = 0;
+		pj_time_val_normalize(&delay);
+		PJ_LOG(4, (THIS_FILE, "set max duration for this call duration[%d] ", delay.sec));
+		pjsip_endpt_schedule_timer(app.sip_endpt, &call->hangup_timer, &delay);
+		call->inv->mod_data[mod_callcontrol.id] = &call->hangup_timer;
 	}
 
 	/* Simulate call processing delay */
@@ -745,24 +795,6 @@ static pjsip_module mod_test =
     NULL,			    /* unload()			*/
     NULL,			    /* on_rx_request()		*/
     &mod_test_on_rx_response,	    /* on_rx_response()		*/
-    NULL,			    /* on_tx_request.		*/
-    NULL,			    /* on_tx_response()		*/
-    NULL,			    /* on_tsx_state()		*/
-};
-
-/* Used to keep track of disconnection BYE timers */
-static pjsip_module mod_callcontrol =
-{
-    NULL, NULL,			    /* prev, next.		*/
-    { "mod-callcontrol", 9 },	    /* Name.			*/
-    -1,				    /* Id			*/
-    PJSIP_MOD_PRIORITY_APPLICATION, /* Priority			*/
-    NULL,			    /* load()			*/
-    NULL,			    /* start()			*/
-    NULL,			    /* stop()			*/
-    NULL,			    /* unload()			*/
-    NULL,			    /* on_rx_request()		*/
-    NULL,			    /* on_rx_response()		*/
     NULL,			    /* on_tx_request.		*/
     NULL,			    /* on_tx_response()		*/
     NULL,			    /* on_tsx_state()		*/
@@ -988,7 +1020,7 @@ static pj_status_t init_sip() {
 	status = pjsip_endpt_register_module( app.sip_endpt, &mod_responder);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
-	/* Register stateless server module */
+	/* Register stateful server module */
 	status = pjsip_endpt_register_module( app.sip_endpt, &mod_stateful_server);
 	PJ_ASSERT_RETURN(status == PJ_SUCCESS, status);
 
@@ -1256,22 +1288,6 @@ static void call_on_tsx_state_changed(pjsip_inv_session *inv, pjsip_transaction 
 	return;
 }
 
-
-static void hangup_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
-	struct call *call = entry->user_data;
-	PJ_UNUSED_ARG(h);
-	pjsip_tx_data *tdata;
-	pj_status_t status;
-	PJ_LOG(4, (THIS_FILE, "hangup_timer "));
-	if (call->inv->state == PJSIP_INV_STATE_CONFIRMED) {
-		status = pjsip_inv_end_session(call->inv, PJSIP_SC_OK, NULL, &tdata);
-		if (status == PJ_SUCCESS && tdata)
-			status = pjsip_inv_send_msg(call->inv, tdata);
-	} else {
-		PJ_LOG(1, (THIS_FILE, "can not hangup call in this state : %d", call->inv->state));
-	}
-	call->inv->mod_data[mod_callcontrol.id] = NULL;
-}
 
 /* This is notification from the call when the call state has changed.
  * This is called for client calls only.
@@ -1813,6 +1829,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
 	app.log_level = 3;
 	app.server.responses = NULL;
 	app.server.responses_count = 0;
+	app.server.call_duration = 10;
 	pj_list_init(&app.route_set);
 	pjsip_cfg()->endpt.disable_tcp_switch=PJ_TRUE;
 	#define LATENCY_DEFAULT_FN "./latency.csv"
