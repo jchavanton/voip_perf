@@ -133,6 +133,8 @@ struct app {
 	pjmedia_endpt *med_endpt;
 	pj_str_t local_uri;
 	pj_str_t local_contact;
+	pj_str_t local_contact_nat; // When behind NAT this will be the public contact URI
+	pj_str_t nat_ip;            // When behind NAT this will be the public IP
 	unsigned skinfo_cnt;
 	pjmedia_sock_info skinfo[8];
 	pj_bool_t thread_quit;
@@ -510,7 +512,11 @@ static pj_bool_t mod_call_on_rx_request(pjsip_rx_data *rdata) {
 	}
 
 	/* Create UAS dialog */
-	status = pjsip_dlg_create_uas_and_inc_lock( pjsip_ua_instance(), rdata, &app.local_contact, &dlg);
+	if (app.local_contact_nat.slen) {
+		status = pjsip_dlg_create_uas_and_inc_lock( pjsip_ua_instance(), rdata, &app.local_contact_nat, &dlg);
+	} else {
+		status = pjsip_dlg_create_uas_and_inc_lock( pjsip_ua_instance(), rdata, &app.local_contact, &dlg);
+	}
 	if (status != PJ_SUCCESS) {
 		const pj_str_t reason = pj_str("Unable to create dialog");
 		pjsip_endpt_respond_stateless( app.sip_endpt, rdata,500, &reason, NULL, NULL);
@@ -885,6 +891,7 @@ static pj_status_t init_sip() {
 	// addr.sin_addr.s_addr = inet_addr("127.0.1.1");
 	addr.sin_port = pj_htons((pj_uint16_t)app.local_port);
 
+	printf("app.local_addr.slen:%d\n\n\n\n\n", app.local_addr.slen);
 	if (app.local_addr.slen) {
 		addrname.host = app.local_addr;
 		addrname.port = 5060;
@@ -961,6 +968,17 @@ static pj_status_t init_sip() {
 					app.local_addr.ptr,
 					app.local_port,
 					transport_type);
+		if (app.nat_ip.slen) {
+			app.local_contact_nat.ptr = pj_pool_alloc(app.pool, 128);
+			app.local_contact_nat.slen = pj_ansi_sprintf(app.local_uri.ptr,
+					"<sip:%.*s@%.*s:%d;transport=%s>",
+					(int)app.client.callerid.slen,
+					app.client.callerid.ptr,
+					(int)app.nat_ip.slen,
+					app.nat_ip.ptr,
+					app.local_port,
+					transport_type);
+		}
 	} else {
 		app.local_uri.ptr = pj_pool_alloc(app.pool, 128);
 		app.local_uri.slen = pj_ansi_sprintf(app.local_uri.ptr,
@@ -969,6 +987,15 @@ static pj_status_t init_sip() {
 					app.local_addr.ptr,
 					app.local_port,
 					transport_type);
+		if (app.nat_ip.slen) {
+			app.local_contact_nat.ptr = pj_pool_alloc(app.pool, 128);
+			app.local_contact.slen = pj_ansi_sprintf(app.local_uri.ptr,
+					"<sip:voip_perf@%.*s:%d;transport=%s>",
+					(int)app.nat_ip.slen,
+					app.nat_ip.ptr,
+					app.local_port,
+					transport_type);
+		}
 	}
 	app.local_contact = app.local_uri;
 	}
@@ -1770,7 +1797,7 @@ static int load_json_config (char *fn) {
 }
 
 static pj_status_t init_options(int argc, char *argv[]) {
-	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_CFG_FN, OPT_STATELESS, OPT_LOCAL_PORT,
+	enum { OPT_THREAD_COUNT = 127, OPT_HELP, OPT_CFG_FN, OPT_NAT_IP, OPT_STATELESS, OPT_LOCAL_PORT,
                OPT_METHOD, OPT_LATENCY_FN, OPT_COUNT, OPT_REAL_SDP, OPT_CPS,
                OPT_INTERVAL, OPT_VERBOSE, OPT_TIMEOUT, OPT_PROXY, OPT_CONSOLE_MODE,
                OPT_DURATION, OPT_DELAY, OPT_WINDOW, OPT_CALLERID, OPT_TRYING, OPT_RINGING,
@@ -1779,6 +1806,7 @@ static pj_status_t init_options(int argc, char *argv[]) {
         };
 	struct pj_getopt_option long_options[] = {
 		{ "config",	    1, 0, OPT_CFG_FN },
+		{ "nat-etexnal-ip", 1, 0, OPT_NAT_IP },
 		{ "local-port",	    1, 0, OPT_LOCAL_PORT },
 		{ "caller-id",	    1, 0, OPT_CALLERID },
 		{ "count",	    1, 0, OPT_COUNT },
@@ -1911,6 +1939,12 @@ static pj_status_t init_options(int argc, char *argv[]) {
 			{
 			app.cfg_fn = pj_str((char*)pj_optarg);
 			PJ_LOG(3,(THIS_FILE, "json config filename:[%s][%d]", app.cfg_fn.ptr, app.cfg_fn.slen ));
+			}
+			break;
+		case OPT_NAT_IP:
+			{
+			app.nat_ip = pj_str((char*)pj_optarg);
+			PJ_LOG(3,(THIS_FILE, "nat external IP:[%s][%d]", app.nat_ip.ptr, app.nat_ip.slen ));
 			}
 			break;
 		case OPT_CALLERID:
