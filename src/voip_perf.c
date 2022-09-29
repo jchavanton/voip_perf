@@ -452,7 +452,9 @@ static void hangup_timer_cb(pj_timer_heap_t *h, pj_timer_entry *entry) {
 		if (status == PJ_SUCCESS && tdata)
 			status = pjsip_inv_send_msg(call->inv, tdata);
 	} else {
-		PJ_LOG(1, (THIS_FILE, "can not hangup call in this state : %d", call->inv->state));
+		if (call->inv->state != PJSIP_INV_STATE_DISCONNECTED) {
+			PJ_LOG(1, (THIS_FILE, "can not hangup call in this state : %d", call->inv->state));
+		}
 	}
 	call->inv->mod_data[mod_callcontrol.id] = NULL;
 }
